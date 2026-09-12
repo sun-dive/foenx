@@ -9,8 +9,11 @@
 # ⚠ A NEW FILE IS INVISIBLE UNTIL IT IS LISTED HERE.
 deployment:
   tasks:
-    - export DEPLOYPATH="$HOME/foen.xyz/"
-    - test -d "$DEPLOYPATH" || { echo "foen: docroot $DEPLOYPATH does not exist - set it to foen.xyz's Document Root from cPanel → Domains"; exit 1; }
+    # The docroot is READ from cPanel, never guessed: uapi reports it for the domain, php parses the JSON.
+    - export DEPLOYPATH="$(uapi --output=json DomainInfo single_domain_data domain=foen.xyz | php -r 'echo (string)(json_decode(stream_get_contents(STDIN))->result->data->documentroot ?? "");')"
+    - echo "foen: cPanel says foen.xyz's docroot is '$DEPLOYPATH'"
+    - test -n "$DEPLOYPATH" && test -d "$DEPLOYPATH" || { echo "foen: no usable docroot for foen.xyz - nothing written"; exit 1; }
+    - case "$DEPLOYPATH" in "$HOME/public_html"|"$HOME/public_html/") echo "foen: refusing to deploy into public_html (grafcars.com)"; exit 1;; esac
     # ── one-time repair of grafcars.com's docroot: remove ONLY what the 12 Sept deploy put there ──
     # Evidence it was ours: public_html/version.txt holds a foen commit. Delete this block after it has run once.
     - if [ -f "$HOME/public_html/version.txt" ] && grep -qE '^(bd40ed4|6dcf2f9)$' "$HOME/public_html/version.txt"; then /bin/rm -f "$HOME/public_html/index.html" "$HOME/public_html/.htaccess" "$HOME/public_html/relay.php" "$HOME/public_html/version.txt"; /bin/rm -rf "$HOME/public_html/js"; echo "foen: removed the 12 Sept files from public_html"; fi
