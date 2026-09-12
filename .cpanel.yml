@@ -1,11 +1,11 @@
 ---
 # foen - © 2026 sun-dive.
 # cPanel Git™ Version Control deployment. "Update from Remote", THEN "Deploy HEAD Commit". Push ≠ live.
-# Deploys under jetmora.org/foen/ for the relay test; move DEPLOYPATH to foen.xyz's docroot when it points here.
+# Deploys to foen.xyz: the primary domain of its own account, so the docroot is public_html.
 # ⚠ A NEW FILE IS INVISIBLE UNTIL IT IS LISTED HERE.
 deployment:
   tasks:
-    - export DEPLOYPATH="$HOME/jetmora.org/foen/"
+    - export DEPLOYPATH="$HOME/public_html/"
     - /bin/mkdir -p "$DEPLOYPATH/js/engine" "$DEPLOYPATH/js/vendor/noble-hashes"
     - /bin/cp site/index.html "$DEPLOYPATH/index.html"
     - /bin/cp site/.htaccess "$DEPLOYPATH/.htaccess"
