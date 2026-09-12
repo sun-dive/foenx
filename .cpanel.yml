@@ -15,4 +15,5 @@ deployment:
     # The relay keeps call tips OUTSIDE the docroot, as jetmora-data does.
     - /bin/mkdir -p "$HOME/foen-data" && /bin/chmod 700 "$HOME/foen-data"
     - /bin/cp server/relay.php "$DEPLOYPATH/relay.php"
+    - git rev-parse --short HEAD > "$DEPLOYPATH/version.txt"   # what is live: https://foen.xyz/version.txt
     - echo "foen ← $(git rev-parse --short HEAD)"
