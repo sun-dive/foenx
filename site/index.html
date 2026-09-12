@@ -45,7 +45,7 @@
     <label>seconds <input id="secs" type="number" value="30" style="width:6em"></label>
     <label>chunk bytes <input id="chunk" type="number" value="16384" style="width:8em"></label>
     <label>every ms <input id="every" type="number" value="100" style="width:6em"></label>
-    <label><input id="stream" type="checkbox" checked> streaming receive</label>
+    <label><input id="stream" type="checkbox"> streaming receive (off by default: shared LiteSpeed holds flushed output for a second or two)</label>
   </p>
   <button class="primary" id="start">Start</button>
   <span id="state" class="muted"></span>
@@ -105,7 +105,7 @@ async function start() {
   window.__foenDone = s
 }
 $('start').onclick = start
-if (q.get('auto')) { $('secs').value = q.get('auto'); if (q.get('stream') === '0') $('stream').checked = false; if (q.get('chunk')) $('chunk').value = q.get('chunk'); if (q.get('every')) $('every').value = q.get('every'); start() }
+if (q.get('auto')) { $('secs').value = q.get('auto'); $('stream').checked = q.get('stream') === '1'; if (q.get('chunk')) $('chunk').value = q.get('chunk'); if (q.get('every')) $('every').value = q.get('every'); start() }
 </script>
 </body>
 </html>
