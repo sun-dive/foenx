@@ -1,0 +1,4 @@
+# foen — © 2026 sun-dive
+Options -Indexes
+AddType text/javascript .mjs .js
+AddCharset UTF-8 .mjs .js .html

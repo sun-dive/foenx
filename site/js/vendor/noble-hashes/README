@@ -1,0 +1,2 @@
+# @noble/hashes 2.4.0 — MIT, (c) 2022 Paul Miller (https://paulmillr.com). Unmodified ESM files: the
+# subset the engine imports (sha2, hmac and their internals). Full text in LICENSE alongside.

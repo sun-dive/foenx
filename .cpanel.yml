@@ -1,0 +1,18 @@
+---
+# foen - © 2026 sun-dive.
+# cPanel Git™ Version Control deployment. "Update from Remote", THEN "Deploy HEAD Commit". Push ≠ live.
+# Deploys under jetmora.org/foen/ for the relay test; move DEPLOYPATH to foen.xyz's docroot when it points here.
+# ⚠ A NEW FILE IS INVISIBLE UNTIL IT IS LISTED HERE.
+deployment:
+  tasks:
+    - export DEPLOYPATH="$HOME/jetmora.org/foen/"
+    - /bin/mkdir -p "$DEPLOYPATH/js/engine" "$DEPLOYPATH/js/vendor/noble-hashes"
+    - /bin/cp site/index.html "$DEPLOYPATH/index.html"
+    - /bin/cp site/.htaccess "$DEPLOYPATH/.htaccess"
+    - /bin/cp site/js/foen.mjs "$DEPLOYPATH/js/foen.mjs"
+    - /bin/cp site/js/engine/*.mjs site/js/engine/README "$DEPLOYPATH/js/engine/"
+    - /bin/cp site/js/vendor/noble-hashes/*.js site/js/vendor/noble-hashes/LICENSE site/js/vendor/noble-hashes/README "$DEPLOYPATH/js/vendor/noble-hashes/"
+    # The relay keeps call tips OUTSIDE the docroot, as jetmora-data does.
+    - /bin/mkdir -p "$HOME/foen-data" && /bin/chmod 700 "$HOME/foen-data"
+    - /bin/cp server/relay.php "$DEPLOYPATH/relay.php"
+    - echo "foen ← $(git rev-parse --short HEAD)"

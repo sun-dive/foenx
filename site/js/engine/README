@@ -1,0 +1,2 @@
+engine/ = unmodified copies of PharLap2 impl/js at commit b18176d (secp256k1, ecdsa, rfc6979, bytes).
+Refresh with tools/sync-engine.sh; never edit here.

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>foen</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 18px/1.45 system-ui, sans-serif; margin: 0; padding: 20px 16px; max-width: 760px; margin-inline: auto; }
+  h1 { font-size: 28px; margin: 0 0 6px; }
+  .muted { opacity: .7; }
+  button { font: inherit; font-size: 22px; padding: 14px 22px; border-radius: 12px; border: 1px solid #8884; cursor: pointer; }
+  button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+  input, textarea { font: inherit; width: 100%; box-sizing: border-box; padding: 8px; border-radius: 8px; border: 1px solid #8886; }
+  table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+  td { padding: 4px 8px; border-bottom: 1px solid #8883; font-variant-numeric: tabular-nums; }
+  td:first-child { opacity: .75; }
+  code { font-size: 15px; word-break: break-all; }
+  .card { border: 1px solid #8884; border-radius: 12px; padding: 14px 16px; margin: 14px 0; }
+  .ok { color: #16a34a; } .bad { color: #dc2626; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "@noble/hashes/sha2.js": "./js/vendor/noble-hashes/sha2.js",
+  "@noble/hashes/hmac.js": "./js/vendor/noble-hashes/hmac.js"
+} }
+</script>
+</head>
+<body>
+<h1>foen</h1>
+<p class="muted">A call as a signed chain tip. This page measures the relay: no camera yet.</p>
+
+<div class="card" id="me">
+  <div>Your key <code id="pub">…</code></div>
+</div>
+
+<div class="card" id="invite" hidden>
+  <p>Send this link to the other side, then press <b>Start</b> on both.</p>
+  <textarea id="link" rows="3" readonly></textarea>
+</div>
+
+<div class="card">
+  <div>Call <code id="call">…</code> · you are <b id="role">…</b> · peer <code id="peer">not yet</code></div>
+  <p>
+    <label>seconds <input id="secs" type="number" value="30" style="width:6em"></label>
+    <label>chunk bytes <input id="chunk" type="number" value="16384" style="width:8em"></label>
+    <label>every ms <input id="every" type="number" value="100" style="width:6em"></label>
+  </p>
+  <button class="primary" id="start">Start</button>
+  <span id="state" class="muted"></span>
+</div>
+
+<div class="card">
+  <table id="stats"><tbody></tbody></table>
+</div>
+
+<script type="module">
+import { loadKey, newCallId, Sender, Receiver, Relay, Test, toHex, fromHex } from './js/foen.mjs'
+import { publicKey } from './js/engine/ecdsa.mjs'
+
+const $ = id => document.getElementById(id)
+const params = new URLSearchParams(location.hash.slice(1))
+const q = new URLSearchParams(location.search)
+const d = loadKey()
+const pub = publicKey(d)
+$('pub').textContent = toHex(pub)
+
+let callId = params.get('c'), role = 'b', peerPub = params.get('p') ? fromHex(params.get('p')) : null
+if (!callId) {
+  callId = newCallId(); role = 'a'
+  const link = `${location.origin}${location.pathname}#c=${callId}&p=${toHex(pub)}`
+  $('link').value = link; $('invite').hidden = false
+  window.__foenInvite = link
+}
+$('call').textContent = callId; $('role').textContent = role
+if (peerPub) $('peer').textContent = toHex(peerPub)
+
+const relayUrl = new URL('relay.php', location.href).href
+const relay = new Relay(relayUrl, callId, role)
+const sender = new Sender(d, callId)
+const receiver = new Receiver(callId, peerPub)
+
+function render(s) {
+  const rows = [
+    ['elapsed', s.elapsedS + ' s'], ['sent', s.sent], ['received', s.received], ['verified', s.verified],
+    ['bad signature', s.badSig], ['bad format', s.badFormat], ['stale', s.stale],
+    ['gaps (link broken)', s.gaps], ['chunks missed', s.missed], ['posts / failed', `${s.posts} / ${s.postFail}`],
+    ['polls / empty / failed', `${s.polls} / ${s.pollEmpty} / ${s.pollFail}`],
+    ['ack round trip ms (median · p90 · max · n)', s.ackRttMs.n ? `${Math.round(s.ackRttMs.median)} · ${Math.round(s.ackRttMs.p90)} · ${Math.round(s.ackRttMs.max)} · ${s.ackRttMs.n}` : '–'],
+    ['received kbit/s', s.kbps],
+  ]
+  $('stats').tBodies[0].innerHTML = rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')
+  if (receiver.peerPub) $('peer').textContent = toHex(receiver.peerPub)
+  window.__foenStats = s
+}
+
+let test = null
+async function start() {
+  if (test) return
+  $('start').disabled = true; $('state').textContent = 'running…'
+  test = new Test({ relay, sender, receiver, seconds: +$('secs').value, chunkBytes: +$('chunk').value, intervalMs: +$('every').value, onUpdate: render })
+  const s = await test.run()
+  render(s); $('state').textContent = 'done'; $('start').disabled = false; test = null
+  window.__foenDone = s
+}
+$('start').onclick = start
+if (q.get('auto')) { $('secs').value = q.get('auto'); if (q.get('chunk')) $('chunk').value = q.get('chunk'); if (q.get('every')) $('every').value = q.get('every'); start() }
+</script>
+</body>
+</html>
