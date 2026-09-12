@@ -105,7 +105,8 @@ async function start() {
                       localVideo: $('local'), remoteCanvas: $('remote'), onUpdate: render })
     await call.start()
     $('call').textContent = 'Hang up'; $('call').className = 'stop'
-    $('state').textContent = role === 'a' ? 'calling… send the link if you have not' : 'connected to the relay; waiting for the other side'
+    const have = call.have.video && call.have.audio ? 'camera and microphone' : call.have.video ? 'camera only, no microphone found' : call.have.audio ? 'microphone only, no camera found' : 'no camera or microphone found: watching and listening only'
+    $('state').textContent = (role === 'a' ? 'calling, send the link if you have not · ' : 'waiting for the other side · ') + have
   } catch (e) { $('state').textContent = 'could not start: ' + e.message; call = null }
 }
 $('call').onclick = start

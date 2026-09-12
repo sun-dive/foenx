@@ -89,15 +89,22 @@ export class Call {
     if (!supported()) throw new Error('this browser has no WebCodecs (Chrome, Edge or Android Chrome do)')
     this.running = true
     this.stats.startedAt = performance.now()
-    this.media = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: VIDEO.width }, height: { ideal: VIDEO.height }, frameRate: { ideal: VIDEO.fps } },
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-    })
-    if (this.localVideo) { this.localVideo.srcObject = this.media; this.localVideo.muted = true; this.localVideo.play().catch(() => {}) }
+    // Take what the device has: camera and microphone, or either alone, or neither (watch and listen only).
+    const video = { width: { ideal: VIDEO.width }, height: { ideal: VIDEO.height }, frameRate: { ideal: VIDEO.fps } }
+    const audio = { channelCount: 1, echoCancellation: true, noiseSuppression: true }
+    this.media = null; this.have = { video: false, audio: false }
+    for (const c of [{ video, audio }, { audio }, { video }]) {
+      try { this.media = await navigator.mediaDevices.getUserMedia(c); break } catch (e) { this.mediaError = e.name + ': ' + e.message }
+    }
+    if (this.media) {
+      this.have.video = this.media.getVideoTracks().length > 0
+      this.have.audio = this.media.getAudioTracks().length > 0
+      if (this.localVideo && this.have.video) { this.localVideo.srcObject = this.media; this.localVideo.muted = true; this.localVideo.play().catch(() => {}) }
+    }
     this.audioCtx = new AudioContext({ sampleRate: 48000 })
     this.playhead = 0
-    this.startVideoOut()
-    this.startAudioOut().catch(e => { this.audioError = String(e) })
+    if (this.have.video) this.startVideoOut()
+    if (this.have.audio) this.startAudioOut().catch(e => { this.audioError = String(e) })
     this.startDecoders()
     this.tickLoop()
     this.receiveLoop()
