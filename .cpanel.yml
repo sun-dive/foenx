@@ -3,7 +3,7 @@
 # cPanel Git™ Version Control deployment. "Update from Remote", THEN "Deploy HEAD Commit". Push ≠ live.
 #
 # ⚠⚠ foen.xyz is an ADDON domain on the grafcars.com account. Its docroot is what cPanel → Domains shows
-#    for foen.xyz, and NOTHING here may write anywhere else. On 12 Sept a deploy aimed at public_html
+#    for foen.xyz, and NOTHING here may write anywhere else. ⚠ YAML - never put ": " inside a task line. On 12 Sept a deploy aimed at public_html
 #    overwrote grafcars.com's docroot. ⇒ The guard below refuses to run unless the docroot already
 #    exists, so a wrong path fails loudly instead of landing on another site.
 # ⚠ A NEW FILE IS INVISIBLE UNTIL IT IS LISTED HERE.
@@ -11,11 +11,11 @@ deployment:
   tasks:
     # Document Root for foen.xyz as shown in cPanel → Domains (his reading, 12 Sept): /home/grafdtim/foen.xyz
     - export DEPLOYPATH="$HOME/foen.xyz"
-    - echo "foen: deploying to '$DEPLOYPATH'"
-    - test -d "$DEPLOYPATH" || { echo "foen: docroot '$DEPLOYPATH' does not exist - nothing written"; exit 1; }
+    - echo "foen deploying to $DEPLOYPATH"
+    - test -d "$DEPLOYPATH" || { echo "foen docroot $DEPLOYPATH does not exist - nothing written"; exit 1; }
     # ── one-time repair of grafcars.com's docroot: remove ONLY what the 12 Sept deploy put there ──
     # Evidence it was ours: public_html/version.txt holds a foen commit. Delete this block after it has run once.
-    - if [ -f "$HOME/public_html/version.txt" ] && grep -qE '^(bd40ed4|6dcf2f9)$' "$HOME/public_html/version.txt"; then /bin/rm -f "$HOME/public_html/index.html" "$HOME/public_html/.htaccess" "$HOME/public_html/relay.php" "$HOME/public_html/version.txt"; /bin/rm -rf "$HOME/public_html/js"; echo "foen: removed the 12 Sept files from public_html"; fi
+    - if [ -f "$HOME/public_html/version.txt" ] && grep -qE '^(bd40ed4|6dcf2f9)$' "$HOME/public_html/version.txt"; then /bin/rm -f "$HOME/public_html/index.html" "$HOME/public_html/.htaccess" "$HOME/public_html/relay.php" "$HOME/public_html/version.txt"; /bin/rm -rf "$HOME/public_html/js"; echo "foen removed the 12 Sept files from public_html"; fi
     # ── the site ──
     - /bin/mkdir -p "$DEPLOYPATH/js/engine" "$DEPLOYPATH/js/vendor/noble-hashes"
     - /bin/cp site/index.html "$DEPLOYPATH/index.html"
@@ -26,5 +26,6 @@ deployment:
     # The relay keeps call tips OUTSIDE every docroot.
     - /bin/mkdir -p "$HOME/foen-data" && /bin/chmod 700 "$HOME/foen-data"
     - /bin/cp server/relay.php "$DEPLOYPATH/relay.php"
-    - git rev-parse --short HEAD > "$DEPLOYPATH/version.txt"   # what is live: https://foen.xyz/version.txt
+    # what is live - https://foen.xyz/version.txt
+    - git rev-parse --short HEAD > "$DEPLOYPATH/version.txt"
     - echo "foen ← $(git rev-parse --short HEAD)"
