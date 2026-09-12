@@ -1,18 +1,27 @@
 ---
 # foen - © 2026 sun-dive.
 # cPanel Git™ Version Control deployment. "Update from Remote", THEN "Deploy HEAD Commit". Push ≠ live.
-# Deploys to foen.xyz: the primary domain of its own account, so the docroot is public_html.
+#
+# ⚠⚠ foen.xyz is an ADDON domain on the grafcars.com account. Its docroot is what cPanel → Domains shows
+#    for foen.xyz, and NOTHING here may write anywhere else. On 12 Sept a deploy aimed at public_html
+#    overwrote grafcars.com's docroot. ⇒ The guard below refuses to run unless the docroot already
+#    exists, so a wrong path fails loudly instead of landing on another site.
 # ⚠ A NEW FILE IS INVISIBLE UNTIL IT IS LISTED HERE.
 deployment:
   tasks:
-    - export DEPLOYPATH="$HOME/public_html/"
+    - export DEPLOYPATH="$HOME/foen.xyz/"
+    - test -d "$DEPLOYPATH" || { echo "foen: docroot $DEPLOYPATH does not exist - set it to foen.xyz's Document Root from cPanel → Domains"; exit 1; }
+    # ── one-time repair of grafcars.com's docroot: remove ONLY what the 12 Sept deploy put there ──
+    # Evidence it was ours: public_html/version.txt holds a foen commit. Delete this block after it has run once.
+    - if [ -f "$HOME/public_html/version.txt" ] && grep -qE '^(bd40ed4|6dcf2f9)$' "$HOME/public_html/version.txt"; then /bin/rm -f "$HOME/public_html/index.html" "$HOME/public_html/.htaccess" "$HOME/public_html/relay.php" "$HOME/public_html/version.txt"; /bin/rm -rf "$HOME/public_html/js"; echo "foen: removed the 12 Sept files from public_html"; fi
+    # ── the site ──
     - /bin/mkdir -p "$DEPLOYPATH/js/engine" "$DEPLOYPATH/js/vendor/noble-hashes"
     - /bin/cp site/index.html "$DEPLOYPATH/index.html"
     - /bin/cp site/.htaccess "$DEPLOYPATH/.htaccess"
     - /bin/cp site/js/foen.mjs "$DEPLOYPATH/js/foen.mjs"
     - /bin/cp site/js/engine/*.mjs site/js/engine/README "$DEPLOYPATH/js/engine/"
     - /bin/cp site/js/vendor/noble-hashes/*.js site/js/vendor/noble-hashes/LICENSE site/js/vendor/noble-hashes/README "$DEPLOYPATH/js/vendor/noble-hashes/"
-    # The relay keeps call tips OUTSIDE the docroot, as jetmora-data does.
+    # The relay keeps call tips OUTSIDE every docroot.
     - /bin/mkdir -p "$HOME/foen-data" && /bin/chmod 700 "$HOME/foen-data"
     - /bin/cp server/relay.php "$DEPLOYPATH/relay.php"
     - git rev-parse --short HEAD > "$DEPLOYPATH/version.txt"   # what is live: https://foen.xyz/version.txt
