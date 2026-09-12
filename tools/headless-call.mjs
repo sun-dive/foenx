@@ -12,7 +12,7 @@ const CHROME = process.env.CHROME || 'chromium'
 async function launch(port) {
   const dir = mkdtempSync(join(tmpdir(), 'foen-call-'))
   const p = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${dir}`, '--no-first-run', '--no-sandbox',
-    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required', 'about:blank'], { stdio: 'ignore' })
+    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--ignore-certificate-errors', '--autoplay-policy=no-user-gesture-required', 'about:blank'], { stdio: 'ignore' })
   for (let i = 0; i < 50; i++) {
     try { const v = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json(); return { p, dir, ws: v.webSocketDebuggerUrl } } catch { await new Promise(r => setTimeout(r, 200)) }
   }

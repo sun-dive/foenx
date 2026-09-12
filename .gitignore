@@ -2,3 +2,6 @@
 server/data/
 node_modules/
 .DS_Store
+
+tools/bin/
+host.env

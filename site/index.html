@@ -50,7 +50,7 @@
 <details class="card">
   <summary>details</summary>
   <p class="muted">you <code id="pub">…</code><br>call <code id="callid">…</code> · role <b id="role">…</b> · peer <code id="peer">not yet</code></p>
-  <p class="muted"><label><input id="stream" type="checkbox"> streaming receive</label></p>
+  <p class="muted"><label><input id="stream" type="checkbox" checked> streaming receive (on: the device is the server, nothing buffers in between)</label></p>
   <table id="stats"><tbody></tbody></table>
   <p class="muted" id="errors"></p>
 </details>
@@ -110,7 +110,7 @@ async function start() {
   } catch (e) { $('state').textContent = 'could not start: ' + e.message; call = null }
 }
 $('call').onclick = start
-if (q.get('auto')) { $('stream').checked = q.get('stream') === '1'; start() }
+if (q.get('auto')) { $('stream').checked = q.get('stream') !== '0'; start() }
 </script>
 </body>
 </html>
