@@ -10,7 +10,8 @@
 deployment:
   tasks:
     # The docroot is READ from cPanel, never guessed: uapi reports it for the domain, php parses the JSON.
-    - export DEPLOYPATH="$(uapi --output=json DomainInfo single_domain_data domain=foen.xyz | php -r 'echo (string)(json_decode(stream_get_contents(STDIN))->result->data->documentroot ?? "");')"
+    - export UAPI="$(command -v uapi || echo /usr/local/cpanel/bin/uapi)"
+    - export DEPLOYPATH="$("$UAPI" --output=json DomainInfo single_domain_data domain=foen.xyz | php -r 'echo (string)(json_decode(stream_get_contents(STDIN))->result->data->documentroot ?? "");')"
     - echo "foen: cPanel says foen.xyz's docroot is '$DEPLOYPATH'"
     - test -n "$DEPLOYPATH" && test -d "$DEPLOYPATH" || { echo "foen: no usable docroot for foen.xyz - nothing written"; exit 1; }
     - case "$DEPLOYPATH" in "$HOME/public_html"|"$HOME/public_html/") echo "foen: refusing to deploy into public_html (grafcars.com)"; exit 1;; esac
