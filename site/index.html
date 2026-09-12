@@ -85,7 +85,7 @@ function render(s) {
     ['elapsed', s.elapsedS + ' s'], ['sent', s.sent], ['received', s.received], ['verified', s.verified],
     ['bad signature', s.badSig], ['bad format', s.badFormat], ['stale', s.stale],
     ['gaps (link broken)', s.gaps], ['chunks missed', s.missed], ['posts / failed', `${s.posts} / ${s.postFail}`],
-    ['polls / empty / failed', `${s.polls} / ${s.pollEmpty} / ${s.pollFail}`],
+    ['polls / empty / failed', `${s.polls} / ${s.pollEmpty} / ${s.pollFail}`], ['posts in flight, max', s.maxInFlight],
     ['ack round trip ms (median · p90 · max · n)', s.ackRttMs.n ? `${Math.round(s.ackRttMs.median)} · ${Math.round(s.ackRttMs.p90)} · ${Math.round(s.ackRttMs.max)} · ${s.ackRttMs.n}` : '–'],
     ['received kbit/s', s.kbps],
   ]

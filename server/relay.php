@@ -1,13 +1,14 @@
 <?php
 // © 2026 sun-dive.
 //
-// THE RELAY. One file, and it holds ONE thing per direction of a call: the newest tip. It does not
-// parse, verify or keep entries. Both parties connect out over HTTPS; this is where the two
-// connections meet, and it is replaceable without either party noticing.
+// THE RELAY. Per direction of a call it keeps a SHORT RING of the newest entries (RING of them, a few
+// seconds of a call) and nothing else. It does not parse, verify or retain entries. Both parties connect
+// out over HTTPS; this is where the two connections meet, and it is replaceable without either noticing.
 //
-//   POST relay.php?c=<call>&d=<a|b>&s=<seq>   body = the entry (binary)   → {"ok":true,"seq":N}
-//   GET  relay.php?c=<call>&d=<a|b>&after=<n>&wait=<ms>                   → the newest entry with
-//        seq > n, as the body, with X-Seq; 204 when nothing newer arrived within `wait`.
+//   POST relay.php?c=<call>&d=<a|b>&s=<seq>    body = the entry (binary)  → {"ok":true,"seq":N}
+//   GET  relay.php?c=<call>&d=<a|b>&after=<n>&wait=<ms>
+//        → every entry with seq > n still in the ring, oldest first, framed as [u32 BE length][entry]...
+//          with X-Seq = the newest seq and X-Count = how many; 204 when nothing newer arrived in `wait`.
 //
 // ⚠ A call's data lives OUTSIDE the docroot when a sibling directory exists (as jetmora-data does),
 //   else in ./data for local development. Whatever happens, an answer carries a body or a 204.
@@ -16,6 +17,7 @@ declare(strict_types=1);
 const MAX_ENTRY = 262144;   // bytes; a video chunk is tens of KB
 const MAX_WAIT  = 25000;    // ms; under the host's request time limit
 const TTL       = 3600;     // s; a call directory untouched this long is removed
+const RING      = 64;       // entries kept per direction; older ones are unlinked as new ones arrive
 
 function out(array $body, int $status = 200): never {
     http_response_code($status);
@@ -41,8 +43,8 @@ if (!preg_match('/^[0-9a-f]{32}$/', $call)) out(['error' => 'bad call id'], 400)
 if ($dir !== 'a' && $dir !== 'b') out(['error' => 'bad direction'], 400);
 
 $callDir = "$dataRoot/$call";
-$bin = "$callDir/$dir.bin";
 $seqFile = "$callDir/$dir.seq";
+$entryFile = static fn (int $n): string => "$callDir/$dir.$n.e";
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $seq = (int)($_GET['s'] ?? -1);
@@ -52,17 +54,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (strlen($body) > MAX_ENTRY) out(['error' => 'entry too large'], 413);
     if (!is_dir($callDir) && !@mkdir($callDir, 0700, true) && !is_dir($callDir)) out(['error' => 'cannot create call'], 500);
 
-    // Only ever move forward: a late POST must not overwrite a newer tip.
-    $cur = @file_get_contents($seqFile);
-    if ($cur !== false && (int)$cur >= $seq) out(['ok' => true, 'seq' => $seq, 'stale' => true]);
+    $cur = (int)(@file_get_contents($seqFile) ?: -1);
+    // Below the ring's floor there is nothing to keep: the receiver has moved on.
+    if ($seq <= $cur - RING) out(['ok' => true, 'seq' => $seq, 'dropped' => true]);
 
-    // tmp + rename: readers see the old tip or the new one, never a torn file.
-    $tmp = "$bin.$seq.tmp";
+    // tmp + rename: a reader sees a whole entry or none.
+    $tmp = $entryFile($seq) . '.tmp';
     if (file_put_contents($tmp, $body) !== strlen($body)) { @unlink($tmp); out(['error' => 'write failed'], 500); }
-    if (!rename($tmp, $bin)) { @unlink($tmp); out(['error' => 'rename failed'], 500); }
-    $tmpS = "$seqFile.$seq.tmp";
-    file_put_contents($tmpS, (string)$seq);
-    rename($tmpS, $seqFile);
+    if (!rename($tmp, $entryFile($seq))) { @unlink($tmp); out(['error' => 'rename failed'], 500); }
+    if ($seq > $cur) {
+        $tmpS = "$seqFile.$seq.tmp";
+        file_put_contents($tmpS, (string)$seq);
+        rename($tmpS, $seqFile);
+        @unlink($entryFile($seq - RING));   // the one that just fell off the ring
+    }
     touch($callDir);
 
     // Housekeeping, rarely: drop calls nobody has touched for TTL.
@@ -82,15 +87,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     ignore_user_abort(false);
     while (true) {
         clearstatcache(true, $seqFile);
-        $cur = @file_get_contents($seqFile);
-        if ($cur !== false && (int)$cur > $after) {
-            $data = @file_get_contents($bin);
-            if ($data !== false && $data !== '') {
+        $cur = (int)(@file_get_contents($seqFile) ?: -1);
+        if ($cur > $after) {
+            $frames = []; $count = 0;
+            for ($n = max($after + 1, $cur - RING + 1); $n <= $cur; $n++) {
+                $data = @file_get_contents($entryFile($n));
+                if ($data === false || $data === '') continue;   // never posted, or already rotated out
+                $frames[] = pack('N', strlen($data)) . $data; $count++;
+            }
+            if ($count > 0) {
                 http_response_code(200);
                 header('Content-Type: application/octet-stream');
-                header('X-Seq: ' . (int)$cur);
+                header('X-Seq: ' . $cur);
+                header('X-Count: ' . $count);
                 header('Cache-Control: no-store');
-                echo $data;
+                echo implode('', $frames);
                 exit;
             }
         }

@@ -23,6 +23,7 @@ import { concat, toHex, fromHex, fromUtf8, toBigBE, beBytes } from './engine/byt
 
 const VERSION = 1
 const HEADER = 102
+const MAX_IN_FLIGHT = 8
 
 export function newKey() {
   for (;;) {
@@ -116,7 +117,12 @@ export class Relay {
   constructor(url, callId, role) {
     this.url = url; this.callId = callId
     this.mine = role; this.theirs = role === 'a' ? 'b' : 'a'
-    this.stats = { posts: 0, postFail: 0, polls: 0, pollEmpty: 0, pollFail: 0 }
+    this.stats = { posts: 0, postFail: 0, polls: 0, pollEmpty: 0, pollFail: 0, inFlight: 0, maxInFlight: 0 }
+  }
+  /** Fire a post without waiting for it; the caller bounds how many are in flight. */
+  postAsync(seq, bytes) {
+    this.stats.inFlight++; this.stats.maxInFlight = Math.max(this.stats.maxInFlight, this.stats.inFlight)
+    return this.post(seq, bytes).catch(() => null).finally(() => { this.stats.inFlight-- })
   }
   async post(seq, bytes) {
     this.stats.posts++
@@ -124,14 +130,22 @@ export class Relay {
     if (!r.ok) { this.stats.postFail++; throw new Error(`post ${r.status}`) }
     return r.json()
   }
-  /** One long-poll. Returns { seq, bytes } or null when nothing newer arrived in `wait` ms. */
+  /** One long-poll. Returns { seq, entries } - every entry newer than `after` still in the relay's ring,
+   *  oldest first - or null when nothing newer arrived in `wait` ms. */
   async poll(after, wait = 20000) {
     this.stats.polls++
     const r = await fetch(`${this.url}?c=${this.callId}&d=${this.theirs}&after=${after}&wait=${wait}`, { cache: 'no-store' })
     if (r.status === 204) { this.stats.pollEmpty++; return null }
     if (!r.ok) { this.stats.pollFail++; throw new Error(`poll ${r.status}`) }
     const seq = Number(r.headers.get('X-Seq'))
-    return { seq, bytes: new Uint8Array(await r.arrayBuffer()) }
+    const body = new Uint8Array(await r.arrayBuffer())
+    const entries = []
+    for (let o = 0; o + 4 <= body.length;) {
+      const n = readU32be(body, o); o += 4
+      if (o + n > body.length) break
+      entries.push(body.subarray(o, o + n)); o += n
+    }
+    return { seq, entries }
   }
 }
 
@@ -156,7 +170,7 @@ export class Test {
     const elapsed = this.startedAt ? (performance.now() - this.startedAt) / 1000 : 0
     return {
       elapsedS: Math.round(elapsed), sent: this.sender.seq, ...r, posts: l.posts, postFail: l.postFail,
-      polls: l.polls, pollEmpty: l.pollEmpty, pollFail: l.pollFail,
+      polls: l.polls, pollEmpty: l.pollEmpty, pollFail: l.pollFail, maxInFlight: l.maxInFlight,
       ackRttMs: { n: sorted.length, median: q(0.5), p90: q(0.9), max: sorted.at(-1) ?? null },
       kbps: elapsed > 0 ? Math.round(r.bytes * 8 / 1000 / elapsed) : 0,
     }
@@ -173,8 +187,9 @@ export class Test {
           const got = await this.relay.poll(after, 20000)
           if (!got) continue
           after = Math.max(after, got.seq)
-          const ok = this.receiver.accept(got.bytes)
-          if (ok) {
+          for (const bytes of got.entries) {
+            const ok = this.receiver.accept(bytes)
+            if (!ok) continue
             this.peerSeqSeen = ok.seq
             if (ok.payload.length >= 4) {
               const acked = readU32be(ok.payload, 0)
@@ -195,7 +210,9 @@ export class Test {
         const e = this.sender.entry(payload)
         this.sendTimes.set(e.seq, performance.now())
         if (this.sendTimes.size > 200) this.sendTimes.delete(this.sendTimes.keys().next().value)
-        try { await this.relay.post(e.seq, e.bytes) } catch {}
+        // Pipelined: up to MAX_IN_FLIGHT posts on the wire at once; the cadence is the interval, not the RTT.
+        while (this.relay.stats.inFlight >= MAX_IN_FLIGHT) await new Promise(r => setTimeout(r, 5))
+        this.relay.postAsync(e.seq, e.bytes)
         this.onUpdate(this.summary())
         await new Promise(r => setTimeout(r, this.intervalMs))
       }
