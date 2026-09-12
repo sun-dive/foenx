@@ -117,7 +117,7 @@ export class Relay {
   constructor(url, callId, role) {
     this.url = url; this.callId = callId
     this.mine = role; this.theirs = role === 'a' ? 'b' : 'a'
-    this.stats = { posts: 0, postFail: 0, polls: 0, pollEmpty: 0, pollFail: 0, inFlight: 0, maxInFlight: 0 }
+    this.stats = { posts: 0, postFail: 0, polls: 0, pollEmpty: 0, pollFail: 0, streams: 0, inFlight: 0, maxInFlight: 0 }
   }
   /** Fire a post without waiting for it; the caller bounds how many are in flight. */
   postAsync(seq, bytes) {
@@ -147,6 +147,27 @@ export class Relay {
     }
     return { seq, entries }
   }
+  /** Streaming receive: one connection the relay keeps open for `wait` ms, calling onEntry(bytes) for
+   *  each framed entry as it arrives. Resolves when the relay closes it; the caller reconnects. */
+  async stream(after, wait, onEntry) {
+    this.stats.streams++
+    const r = await fetch(`${this.url}?c=${this.callId}&d=${this.theirs}&after=${after}&wait=${wait}&stream=1`, { cache: 'no-store' })
+    if (!r.ok || !r.body) { this.stats.pollFail++; throw new Error(`stream ${r.status}`) }
+    const reader = r.body.getReader()
+    let buf = new Uint8Array(0)
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      const nb = new Uint8Array(buf.length + value.length); nb.set(buf); nb.set(value, buf.length); buf = nb
+      let o = 0
+      while (o + 4 <= buf.length) {
+        const n = readU32be(buf, o)
+        if (o + 4 + n > buf.length) break
+        onEntry(buf.subarray(o + 4, o + 4 + n)); o += 4 + n
+      }
+      buf = buf.subarray(o)
+    }
+  }
 }
 
 /**
@@ -155,8 +176,8 @@ export class Relay {
  * the ack round trip without shared clocks.
  */
 export class Test {
-  constructor({ relay, sender, receiver, chunkBytes = 16384, intervalMs = 100, seconds = 30, onUpdate = () => {} }) {
-    Object.assign(this, { relay, sender, receiver, chunkBytes, intervalMs, seconds, onUpdate })
+  constructor({ relay, sender, receiver, chunkBytes = 16384, intervalMs = 100, seconds = 30, stream = true, onUpdate = () => {} }) {
+    Object.assign(this, { relay, sender, receiver, chunkBytes, intervalMs, seconds, stream, onUpdate })
     this.sendTimes = new Map()
     this.rtts = []
     this.running = false
@@ -170,7 +191,7 @@ export class Test {
     const elapsed = this.startedAt ? (performance.now() - this.startedAt) / 1000 : 0
     return {
       elapsedS: Math.round(elapsed), sent: this.sender.seq, ...r, posts: l.posts, postFail: l.postFail,
-      polls: l.polls, pollEmpty: l.pollEmpty, pollFail: l.pollFail, maxInFlight: l.maxInFlight,
+      polls: l.polls, pollEmpty: l.pollEmpty, pollFail: l.pollFail, streams: l.streams, maxInFlight: l.maxInFlight, mode: this.stream ? 'stream' : 'poll',
       ackRttMs: { n: sorted.length, median: q(0.5), p90: q(0.9), max: sorted.at(-1) ?? null },
       kbps: elapsed > 0 ? Math.round(r.bytes * 8 / 1000 / elapsed) : 0,
     }
@@ -180,24 +201,29 @@ export class Test {
     this.startedAt = performance.now()
     const stopAt = this.startedAt + this.seconds * 1000
 
+    const take = bytes => {
+      const ok = this.receiver.accept(bytes)
+      if (!ok) return
+      this.peerSeqSeen = ok.seq
+      if (ok.payload.length >= 4) {
+        const acked = readU32be(ok.payload, 0)
+        const t = this.sendTimes.get(acked)
+        if (t !== undefined) { this.rtts.push(performance.now() - t); this.sendTimes.delete(acked) }
+      }
+    }
     const pollLoop = (async () => {
       let after = -1
       while (this.running) {
         try {
-          const got = await this.relay.poll(after, 20000)
-          if (!got) continue
-          after = Math.max(after, got.seq)
-          for (const bytes of got.entries) {
-            const ok = this.receiver.accept(bytes)
-            if (!ok) continue
-            this.peerSeqSeen = ok.seq
-            if (ok.payload.length >= 4) {
-              const acked = readU32be(ok.payload, 0)
-              const t = this.sendTimes.get(acked)
-              if (t !== undefined) { this.rtts.push(performance.now() - t); this.sendTimes.delete(acked) }
-            }
+          if (this.stream) {
+            await this.relay.stream(after, 20000, bytes => { take(bytes); after = Math.max(after, this.receiver.seq); this.onUpdate(this.summary()) })
+          } else {
+            const got = await this.relay.poll(after, 20000)
+            if (!got) continue
+            after = Math.max(after, got.seq)
+            for (const bytes of got.entries) take(bytes)
+            this.onUpdate(this.summary())
           }
-          this.onUpdate(this.summary())
         } catch (e) { await new Promise(r => setTimeout(r, 250)) }
       }
     })()

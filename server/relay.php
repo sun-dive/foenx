@@ -9,6 +9,9 @@
 //   GET  relay.php?c=<call>&d=<a|b>&after=<n>&wait=<ms>
 //        → every entry with seq > n still in the ring, oldest first, framed as [u32 BE length][entry]...
 //          with X-Seq = the newest seq and X-Count = how many; 204 when nothing newer arrived in `wait`.
+//   GET  relay.php?c=<call>&d=<a|b>&after=<n>&wait=<ms>&stream=1
+//        → the same framing, but the connection stays open for `wait` ms and each entry is written and
+//          flushed the moment it arrives. The client reconnects with the last seq it saw when it closes.
 //
 // ⚠ A call's data lives OUTSIDE the docroot when a sibling directory exists (as jetmora-data does),
 //   else in ./data for local development. Whatever happens, an answer carries a body or a 204.
@@ -80,6 +83,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     out(['ok' => true, 'seq' => $seq]);
 }
 
+/** The entries newer than $after still in the ring, framed, oldest first. */
+function framesSince(int $after, int $cur, callable $entryFile): array {
+    $frames = []; $count = 0;
+    for ($n = max($after + 1, $cur - RING + 1); $n <= $cur; $n++) {
+        $data = @file_get_contents($entryFile($n));
+        if ($data === false || $data === '') continue;   // never posted, or already rotated out
+        $frames[] = pack('N', strlen($data)) . $data; $count++;
+    }
+    return [$frames, $count];
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['stream'] ?? '') === '1') {
+    // Streaming: headers now, then write-and-flush each batch as it arrives until the deadline.
+    $after = (int)($_GET['after'] ?? -1);
+    $wait  = min(MAX_WAIT, max(0, (int)($_GET['wait'] ?? 0)));
+    $deadline = microtime(true) + $wait / 1000;
+    ignore_user_abort(false);
+    @ini_set('zlib.output_compression', '0');
+    @ini_set('output_buffering', '0');
+    while (ob_get_level() > 0) ob_end_flush();
+    http_response_code(200);
+    header('Content-Type: application/octet-stream');
+    header('Cache-Control: no-store');
+    header('X-Accel-Buffering: no');
+    header('X-LiteSpeed-Cache-Control: no-cache');
+    flush();
+    while (true) {
+        clearstatcache(true, $seqFile);
+        $cur = (int)(@file_get_contents($seqFile) ?: -1);
+        if ($cur > $after) {
+            [$frames, $count] = framesSince($after, $cur, $entryFile);
+            if ($count > 0) { echo implode('', $frames); flush(); }
+            $after = $cur;
+        }
+        if (microtime(true) >= $deadline || connection_aborted()) break;
+        usleep(15000);
+    }
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $after = (int)($_GET['after'] ?? -1);
     $wait  = min(MAX_WAIT, max(0, (int)($_GET['wait'] ?? 0)));
@@ -89,12 +132,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         clearstatcache(true, $seqFile);
         $cur = (int)(@file_get_contents($seqFile) ?: -1);
         if ($cur > $after) {
-            $frames = []; $count = 0;
-            for ($n = max($after + 1, $cur - RING + 1); $n <= $cur; $n++) {
-                $data = @file_get_contents($entryFile($n));
-                if ($data === false || $data === '') continue;   // never posted, or already rotated out
-                $frames[] = pack('N', strlen($data)) . $data; $count++;
-            }
+            [$frames, $count] = framesSince($after, $cur, $entryFile);
             if ($count > 0) {
                 http_response_code(200);
                 header('Content-Type: application/octet-stream');

@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const [base = 'http://127.0.0.1:8088/', seconds = '30', chunk = '16384', every = '100'] = process.argv.slice(2)
+const [base = 'http://127.0.0.1:8088/', seconds = '30', chunk = '16384', every = '100', stream = '1'] = process.argv.slice(2)
 const CHROME = process.env.CHROME || 'chromium'
 
 async function launch(port) {
@@ -35,7 +35,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms))
 
 const A = await launch(9301), B = await launch(9302)
 try {
-  const auto = `?auto=${seconds}&chunk=${chunk}&every=${every}`
+  const auto = `?auto=${seconds}&chunk=${chunk}&every=${every}&stream=${stream}`
   const a2 = await page(A, base + auto)            // A: no call in the hash ⇒ role a, starts at once
   let invite = null
   for (let i = 0; i < 50 && !invite; i++) { invite = await a2.evalJs('window.__foenInvite || null'); if (!invite) await wait(200) }
@@ -53,7 +53,7 @@ try {
   console.log('\n')
   for (const [name, s] of [['A', da], ['B', db]]) {
     if (!s) { console.log(`${name}: did not finish`); continue }
-    console.log(`${name}: ${s.elapsedS}s · sent ${s.sent} · received ${s.received} · verified ${s.verified} · badSig ${s.badSig} · badFormat ${s.badFormat} · stale ${s.stale} · gaps ${s.gaps} (missed ${s.missed}) · posts ${s.posts}/${s.postFail} fail · polls ${s.polls}/${s.pollEmpty} empty/${s.pollFail} fail · ack RTT median ${Math.round(s.ackRttMs.median ?? -1)} p90 ${Math.round(s.ackRttMs.p90 ?? -1)} max ${Math.round(s.ackRttMs.max ?? -1)} (n=${s.ackRttMs.n}) · ${s.kbps} kbit/s`)
+    console.log(`${name} [${s.mode}]: ${s.elapsedS}s · sent ${s.sent} · received ${s.received} · verified ${s.verified} · badSig ${s.badSig} · badFormat ${s.badFormat} · stale ${s.stale} · gaps ${s.gaps} (missed ${s.missed}) · posts ${s.posts}/${s.postFail} fail · polls ${s.polls}/${s.pollEmpty} empty/${s.pollFail} fail · ack RTT median ${Math.round(s.ackRttMs.median ?? -1)} p90 ${Math.round(s.ackRttMs.p90 ?? -1)} max ${Math.round(s.ackRttMs.max ?? -1)} (n=${s.ackRttMs.n}) · ${s.kbps} kbit/s`)
   }
 } finally {
   A.p.kill(); B.p.kill(); await wait(1000)

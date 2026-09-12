@@ -45,6 +45,7 @@
     <label>seconds <input id="secs" type="number" value="30" style="width:6em"></label>
     <label>chunk bytes <input id="chunk" type="number" value="16384" style="width:8em"></label>
     <label>every ms <input id="every" type="number" value="100" style="width:6em"></label>
+    <label><input id="stream" type="checkbox" checked> streaming receive</label>
   </p>
   <button class="primary" id="start">Start</button>
   <span id="state" class="muted"></span>
@@ -82,10 +83,10 @@ const receiver = new Receiver(callId, peerPub)
 
 function render(s) {
   const rows = [
-    ['elapsed', s.elapsedS + ' s'], ['sent', s.sent], ['received', s.received], ['verified', s.verified],
+    ['mode', s.mode], ['elapsed', s.elapsedS + ' s'], ['sent', s.sent], ['received', s.received], ['verified', s.verified],
     ['bad signature', s.badSig], ['bad format', s.badFormat], ['stale', s.stale],
     ['gaps (link broken)', s.gaps], ['chunks missed', s.missed], ['posts / failed', `${s.posts} / ${s.postFail}`],
-    ['polls / empty / failed', `${s.polls} / ${s.pollEmpty} / ${s.pollFail}`], ['posts in flight, max', s.maxInFlight],
+    ['polls / empty / failed', `${s.polls} / ${s.pollEmpty} / ${s.pollFail}`], ['posts in flight, max', s.maxInFlight], ['stream connections', s.streams],
     ['ack round trip ms (median · p90 · max · n)', s.ackRttMs.n ? `${Math.round(s.ackRttMs.median)} · ${Math.round(s.ackRttMs.p90)} · ${Math.round(s.ackRttMs.max)} · ${s.ackRttMs.n}` : '–'],
     ['received kbit/s', s.kbps],
   ]
@@ -98,13 +99,13 @@ let test = null
 async function start() {
   if (test) return
   $('start').disabled = true; $('state').textContent = 'running…'
-  test = new Test({ relay, sender, receiver, seconds: +$('secs').value, chunkBytes: +$('chunk').value, intervalMs: +$('every').value, onUpdate: render })
+  test = new Test({ relay, sender, receiver, seconds: +$('secs').value, chunkBytes: +$('chunk').value, intervalMs: +$('every').value, stream: $('stream').checked, onUpdate: render })
   const s = await test.run()
   render(s); $('state').textContent = 'done'; $('start').disabled = false; test = null
   window.__foenDone = s
 }
 $('start').onclick = start
-if (q.get('auto')) { $('secs').value = q.get('auto'); if (q.get('chunk')) $('chunk').value = q.get('chunk'); if (q.get('every')) $('every').value = q.get('every'); start() }
+if (q.get('auto')) { $('secs').value = q.get('auto'); if (q.get('stream') === '0') $('stream').checked = false; if (q.get('chunk')) $('chunk').value = q.get('chunk'); if (q.get('every')) $('every').value = q.get('every'); start() }
 </script>
 </body>
 </html>
