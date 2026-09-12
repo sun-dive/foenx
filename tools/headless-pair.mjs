@@ -11,7 +11,7 @@ const CHROME = process.env.CHROME || 'chromium'
 
 async function launch(port) {
   const dir = mkdtempSync(join(tmpdir(), 'foen-'))
-  const p = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${dir}`, '--no-first-run', '--no-sandbox', '--disable-gpu', 'about:blank'], { stdio: 'ignore' })
+  const p = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${dir}`, '--no-first-run', '--no-sandbox', '--disable-gpu', '--ignore-certificate-errors', 'about:blank'], { stdio: 'ignore' })
   for (let i = 0; i < 50; i++) {
     try { const v = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json(); return { p, dir, ws: v.webSocketDebuggerUrl, port } } catch { await new Promise(r => setTimeout(r, 200)) }
   }
@@ -36,7 +36,8 @@ const wait = ms => new Promise(r => setTimeout(r, ms))
 const A = await launch(9301), B = await launch(9302)
 try {
   const auto = `?auto=${seconds}&chunk=${chunk}&every=${every}&stream=${stream}`
-  const a2 = await page(A, base + auto)            // A: no call in the hash ⇒ role a, starts at once
+  const testPage = base.replace(/\/?$/, '/') + 'test.html'
+  const a2 = await page(A, testPage + auto)        // A: no call in the hash ⇒ role a, starts at once
   let invite = null
   for (let i = 0; i < 50 && !invite; i++) { invite = await a2.evalJs('window.__foenInvite || null'); if (!invite) await wait(200) }
   if (!invite) throw new Error('no invite link from page A')
