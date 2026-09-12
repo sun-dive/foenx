@@ -6,18 +6,22 @@
 <title>foen</title>
 <style>
   :root { color-scheme: light dark; }
-  body { font: 18px/1.45 system-ui, sans-serif; margin: 0; padding: 20px 16px; max-width: 760px; margin-inline: auto; }
-  h1 { font-size: 28px; margin: 0 0 6px; }
-  .muted { opacity: .7; }
-  button { font: inherit; font-size: 22px; padding: 14px 22px; border-radius: 12px; border: 1px solid #8884; cursor: pointer; }
+  body { font: 20px/1.4 system-ui, sans-serif; margin: 0; padding: 16px; max-width: 900px; margin-inline: auto; }
+  h1 { font-size: 30px; margin: 0 0 8px; }
+  .muted { opacity: .7; font-size: 16px; }
+  .videos { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 12px 0; }
+  @media (min-width: 640px) { .videos { grid-template-columns: 2fr 1fr; } }
+  canvas, video { width: 100%; background: #111; border-radius: 12px; aspect-ratio: 4 / 3; object-fit: cover; display: block; }
+  button { font: inherit; font-size: 26px; padding: 18px 28px; border-radius: 14px; border: 1px solid #8884; cursor: pointer; width: 100%; }
   button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
-  input, textarea { font: inherit; width: 100%; box-sizing: border-box; padding: 8px; border-radius: 8px; border: 1px solid #8886; }
-  table { border-collapse: collapse; width: 100%; margin-top: 12px; }
-  td { padding: 4px 8px; border-bottom: 1px solid #8883; font-variant-numeric: tabular-nums; }
+  button.stop { background: #dc2626; color: #fff; border-color: #dc2626; }
+  textarea { font: inherit; font-size: 15px; width: 100%; box-sizing: border-box; padding: 8px; border-radius: 8px; border: 1px solid #8886; }
+  .card { border: 1px solid #8884; border-radius: 12px; padding: 12px 14px; margin: 12px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  td { padding: 2px 8px; border-bottom: 1px solid #8883; font-variant-numeric: tabular-nums; }
   td:first-child { opacity: .75; }
-  code { font-size: 15px; word-break: break-all; }
-  .card { border: 1px solid #8884; border-radius: 12px; padding: 14px 16px; margin: 14px 0; }
-  .ok { color: #16a34a; } .bad { color: #dc2626; }
+  code { font-size: 14px; word-break: break-all; }
+  details summary { cursor: pointer; font-size: 16px; opacity: .8; }
 </style>
 <script type="importmap">
 { "imports": {
@@ -28,36 +32,33 @@
 </head>
 <body>
 <h1>foen</h1>
-<p class="muted">A call as a signed chain tip. This page measures the relay: no camera yet.</p>
+<p class="muted" id="hint">A video call as a signed chain tip. No account, no app: one link, one button.</p>
 
-<div class="card" id="me">
-  <div>Your key <code id="pub">…</code></div>
+<div class="videos">
+  <canvas id="remote" width="320" height="240"></canvas>
+  <video id="local" playsinline autoplay muted></video>
 </div>
 
+<button class="primary" id="call">Call</button>
+<p class="muted" id="state"></p>
+
 <div class="card" id="invite" hidden>
-  <p>Send this link to the other side, then press <b>Start</b> on both.</p>
+  <p class="muted">Send this link to the other side. When they open it and press Call, you see each other.</p>
   <textarea id="link" rows="3" readonly></textarea>
 </div>
 
-<div class="card">
-  <div>Call <code id="call">…</code> · you are <b id="role">…</b> · peer <code id="peer">not yet</code></div>
-  <p>
-    <label>seconds <input id="secs" type="number" value="30" style="width:6em"></label>
-    <label>chunk bytes <input id="chunk" type="number" value="16384" style="width:8em"></label>
-    <label>every ms <input id="every" type="number" value="100" style="width:6em"></label>
-    <label><input id="stream" type="checkbox"> streaming receive (off by default: shared LiteSpeed holds flushed output for a second or two)</label>
-  </p>
-  <button class="primary" id="start">Start</button>
-  <span id="state" class="muted"></span>
-</div>
-
-<div class="card">
+<details class="card">
+  <summary>details</summary>
+  <p class="muted">you <code id="pub">…</code><br>call <code id="callid">…</code> · role <b id="role">…</b> · peer <code id="peer">not yet</code></p>
+  <p class="muted"><label><input id="stream" type="checkbox"> streaming receive</label></p>
   <table id="stats"><tbody></tbody></table>
-</div>
+  <p class="muted" id="errors"></p>
+</details>
 
 <script type="module">
-import { loadKey, newCallId, Sender, Receiver, Relay, Test, toHex, fromHex } from './js/foen.mjs'
+import { loadKey, newCallId, toHex, fromHex } from './js/foen.mjs'
 import { publicKey } from './js/engine/ecdsa.mjs'
+import { Call, supported } from './js/call.mjs'
 
 const $ = id => document.getElementById(id)
 const params = new URLSearchParams(location.hash.slice(1))
@@ -73,39 +74,42 @@ if (!callId) {
   $('link').value = link; $('invite').hidden = false
   window.__foenInvite = link
 }
-$('call').textContent = callId; $('role').textContent = role
+$('callid').textContent = callId; $('role').textContent = role
 if (peerPub) $('peer').textContent = toHex(peerPub)
+if (!supported()) { $('state').textContent = 'This browser cannot encode video in the page. Chrome, Edge or Chrome on Android can.'; $('call').disabled = true }
 
-const relayUrl = new URL('relay.php', location.href).href
-const relay = new Relay(relayUrl, callId, role)
-const sender = new Sender(d, callId)
-const receiver = new Receiver(callId, peerPub)
-
+let call = null
 function render(s) {
   const rows = [
-    ['mode', s.mode], ['elapsed', s.elapsedS + ' s'], ['sent', s.sent], ['received', s.received], ['verified', s.verified],
-    ['bad signature', s.badSig], ['bad format', s.badFormat], ['stale', s.stale],
-    ['gaps (link broken)', s.gaps], ['chunks missed', s.missed], ['posts / failed', `${s.posts} / ${s.postFail}`],
-    ['polls / empty / failed', `${s.polls} / ${s.pollEmpty} / ${s.pollFail}`], ['posts in flight, max', s.maxInFlight], ['stream connections', s.streams],
-    ['ack round trip ms (median · p90 · max · n)', s.ackRttMs.n ? `${Math.round(s.ackRttMs.median)} · ${Math.round(s.ackRttMs.p90)} · ${Math.round(s.ackRttMs.max)} · ${s.ackRttMs.n}` : '–'],
-    ['received kbit/s', s.kbps],
+    ['elapsed', s.elapsedS + ' s'], ['ticks sent / got', `${s.ticksSent} / ${s.ticksGot}`],
+    ['video frames encoded / decoded', `${s.framesEncoded} / ${s.framesDecoded}`],
+    ['audio packets encoded / decoded', `${s.audioEncoded} / ${s.audioDecoded}`],
+    ['waiting for a key frame', s.keyWaits], ['decode errors', s.decodeErrors],
+    ['verified · bad sig · bad format · stale', `${s.verified} · ${s.badSig} · ${s.badFormat} · ${s.stale}`],
+    ['gaps · missed', `${s.gaps} · ${s.missed}`], ['posts / failed', `${s.posts} / ${s.postFail}`], ['polls / failed', `${s.polls} / ${s.pollFail}`],
+    ['round trip ms (median · p90 · max · n)', s.rtt.n ? `${s.rtt.median} · ${s.rtt.p90} · ${s.rtt.max} · ${s.rtt.n}` : '–'],
+    ['send / receive kbit/s', `${s.sendKbps} / ${s.recvKbps}`],
   ]
   $('stats').tBodies[0].innerHTML = rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')
-  if (receiver.peerPub) $('peer').textContent = toHex(receiver.peerPub)
+  if (call?.receiver.peerPub) $('peer').textContent = toHex(call.receiver.peerPub)
+  const errs = [call?.videoError && 'video: ' + call.videoError, call?.audioError && 'audio: ' + call.audioError].filter(Boolean)
+  $('errors').textContent = errs.join(' · ')
   window.__foenStats = s
 }
 
-let test = null
 async function start() {
-  if (test) return
-  $('start').disabled = true; $('state').textContent = 'running…'
-  test = new Test({ relay, sender, receiver, seconds: +$('secs').value, chunkBytes: +$('chunk').value, intervalMs: +$('every').value, stream: $('stream').checked, onUpdate: render })
-  const s = await test.run()
-  render(s); $('state').textContent = 'done'; $('start').disabled = false; test = null
-  window.__foenDone = s
+  if (call) { call.stop(); call = null; $('call').textContent = 'Call'; $('call').className = 'primary'; $('state').textContent = 'ended'; return }
+  $('state').textContent = 'starting camera…'
+  try {
+    call = new Call({ d, callId, role, peerPub, relayUrl: new URL('relay.php', location.href).href, stream: $('stream').checked,
+                      localVideo: $('local'), remoteCanvas: $('remote'), onUpdate: render })
+    await call.start()
+    $('call').textContent = 'Hang up'; $('call').className = 'stop'
+    $('state').textContent = role === 'a' ? 'calling… send the link if you have not' : 'connected to the relay; waiting for the other side'
+  } catch (e) { $('state').textContent = 'could not start: ' + e.message; call = null }
 }
-$('start').onclick = start
-if (q.get('auto')) { $('secs').value = q.get('auto'); $('stream').checked = q.get('stream') === '1'; if (q.get('chunk')) $('chunk').value = q.get('chunk'); if (q.get('every')) $('every').value = q.get('every'); start() }
+$('call').onclick = start
+if (q.get('auto')) { $('stream').checked = q.get('stream') === '1'; start() }
 </script>
 </body>
 </html>

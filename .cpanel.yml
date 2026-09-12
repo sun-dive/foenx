@@ -18,9 +18,9 @@ deployment:
     - if [ -f "$HOME/public_html/version.txt" ] && grep -qE '^(bd40ed4|6dcf2f9)$' "$HOME/public_html/version.txt"; then /bin/rm -f "$HOME/public_html/index.html" "$HOME/public_html/.htaccess" "$HOME/public_html/relay.php" "$HOME/public_html/version.txt"; /bin/rm -rf "$HOME/public_html/js"; echo "foen removed the 12 Sept files from public_html"; fi
     # ── the site ──
     - /bin/mkdir -p "$DEPLOYPATH/js/engine" "$DEPLOYPATH/js/vendor/noble-hashes"
-    - /bin/cp site/index.html "$DEPLOYPATH/index.html"
+    - /bin/cp site/index.html site/test.html "$DEPLOYPATH/"
     - /bin/cp site/.htaccess "$DEPLOYPATH/.htaccess"
-    - /bin/cp site/js/foen.mjs "$DEPLOYPATH/js/foen.mjs"
+    - /bin/cp site/js/foen.mjs site/js/call.mjs "$DEPLOYPATH/js/"
     - /bin/cp site/js/engine/*.mjs site/js/engine/README "$DEPLOYPATH/js/engine/"
     - /bin/cp site/js/vendor/noble-hashes/*.js site/js/vendor/noble-hashes/LICENSE site/js/vendor/noble-hashes/README "$DEPLOYPATH/js/vendor/noble-hashes/"
     # The relay keeps call tips OUTSIDE every docroot.
