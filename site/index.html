@@ -149,6 +149,7 @@ function render(s) {
     ['video frames encoded / decoded', `${s.framesEncoded} / ${s.framesDecoded}`],
     ['audio packets encoded / decoded', `${s.audioEncoded} / ${s.audioDecoded}`],
     ['waiting for a key frame', s.keyWaits], ['decode errors', s.decodeErrors],
+    ['audio buffer ms · packets dropped', `${s.audioLagMs} · ${s.audioDropped}`], ['video frames skipped · decode queue', `${s.videoSkipped} · ${s.decodeQueue}`],
     ['verified · bad sig · bad format · stale', `${s.verified} · ${s.badSig} · ${s.badFormat} · ${s.stale}`],
     ['gaps · missed', `${s.gaps} · ${s.missed}`], ['posts / failed', `${s.posts} / ${s.postFail}`], ['polls / failed', `${s.polls} / ${s.pollFail}`],
     ['round trip ms (median · p90 · max · n)', s.rtt.n ? `${s.rtt.median} · ${s.rtt.p90} · ${s.rtt.max} · ${s.rtt.n}` : '–'],

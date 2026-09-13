@@ -52,7 +52,7 @@ try {
   console.log(rang ? `A was rung by "${rang.from}" on call ${rang.callId.slice(0, 8)}…` : 'A was never rung')
   for (const [name, s] of [['A (answered)', sa], ['B (called by name)', sb]]) {
     if (!s) { console.log(`${name}: no stats`); continue }
-    console.log(`${name}: ${s.elapsedS}s · ticks ${s.ticksSent}/${s.ticksGot} · video ${s.framesEncoded}→${s.framesDecoded} · audio ${s.audioEncoded}→${s.audioDecoded} · errors ${s.decodeErrors} · badSig ${s.badSig} · gaps ${s.gaps} · rtt med ${s.rtt.median} p90 ${s.rtt.p90} · send ${s.sendKbps} recv ${s.recvKbps} kbit/s`)
+    console.log(`${name}: ${s.elapsedS}s · ticks ${s.ticksSent}/${s.ticksGot} · video ${s.framesEncoded}→${s.framesDecoded} · audio ${s.audioEncoded}→${s.audioDecoded} · audio buffer ${s.audioLagMs} ms dropped ${s.audioDropped} · video skipped ${s.videoSkipped} · errors ${s.decodeErrors} · badSig ${s.badSig} · gaps ${s.gaps} · rtt med ${s.rtt.median} p90 ${s.rtt.p90} · send ${s.sendKbps} recv ${s.recvKbps} kbit/s`)
   }
 } finally {
   A.p.kill(); B.p.kill(); await wait(1000)

@@ -16,6 +16,8 @@ const KEY_EVERY = 20
 const VIDEO = { width: 320, height: 240, fps: 10, bitrate: 250_000 }
 const AUDIO_BITRATE = 24_000
 const JITTER_S = 0.25
+const MAX_LAG_S = 0.4          // audio queued beyond jitter + this is dropped rather than played late
+const START_BEHIND = 2         // on join, take at most this many of the ring's newest ticks
 const MAX_IN_FLIGHT = 8
 
 const u32be = n => Uint8Array.of((n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255)
@@ -60,7 +62,7 @@ export class Call {
     this.sender = new Sender(o.d, o.callId)
     this.receiver = new Receiver(o.callId, o.peerPub ?? null)
     this.stats = { framesIn: 0, framesEncoded: 0, audioEncoded: 0, ticksSent: 0, ticksGot: 0, framesDecoded: 0, audioDecoded: 0,
-                   keyWaits: 0, decodeErrors: 0, videoBytes: 0, audioBytes: 0, startedAt: 0, rtts: [] }
+                   keyWaits: 0, decodeErrors: 0, videoBytes: 0, audioBytes: 0, startedAt: 0, rtts: [], audioDropped: 0, audioLagMs: 0, videoSkipped: 0 }
     this.pendingVideo = null
     this.pendingAudio = []
     this.peerSeqSeen = -1
@@ -77,6 +79,7 @@ export class Call {
     return {
       elapsedS: Math.round(el), ticksSent: s.ticksSent, ticksGot: s.ticksGot, framesEncoded: s.framesEncoded, framesDecoded: s.framesDecoded,
       audioEncoded: s.audioEncoded, audioDecoded: s.audioDecoded, keyWaits: s.keyWaits, decodeErrors: s.decodeErrors,
+      audioDropped: s.audioDropped, audioLagMs: s.audioLagMs, videoSkipped: s.videoSkipped, decodeQueue: this.vDec?.decodeQueueSize ?? 0,
       verified: r.verified, badSig: r.badSig, badFormat: r.badFormat, stale: r.stale, gaps: r.gaps, missed: r.missed,
       posts: l.posts, postFail: l.postFail, polls: l.polls, pollFail: l.pollFail, maxInFlight: l.maxInFlight,
       rtt: { n: sorted.length, median: q(0.5), p90: q(0.9), max: sorted.length ? Math.round(sorted.at(-1)) : null },
@@ -221,10 +224,13 @@ export class Call {
           const ch = data.numberOfChannels, frames = data.numberOfFrames
           const buf = this.audioCtx.createBuffer(ch, frames, data.sampleRate)
           for (let c = 0; c < ch; c++) { const f32 = new Float32Array(frames); data.copyTo(f32, { planeIndex: c, format: 'f32-planar' }); buf.copyToChannel(f32, c) }
-          const src = this.audioCtx.createBufferSource(); src.buffer = buf; src.connect(this.audioCtx.destination)
           const now = this.audioCtx.currentTime
+          // Bounded jitter buffer: fall behind by more than the budget and the backlog is dropped, never queued.
           if (this.playhead < now + 0.02) this.playhead = now + JITTER_S
+          if (this.playhead - now > JITTER_S + MAX_LAG_S) { this.stats.audioDropped++; data.close(); return }
+          const src = this.audioCtx.createBufferSource(); src.buffer = buf; src.connect(this.audioCtx.destination)
           src.start(this.playhead); this.playhead += buf.duration
+          this.stats.audioLagMs = Math.round((this.playhead - now) * 1000)
         } catch {}
         data.close()
       },
@@ -242,6 +248,7 @@ export class Call {
       if (r.type === 1 || r.type === 2) {
         if (r.type === 1) this.haveKey = true
         if (!this.haveKey) { this.stats.keyWaits++; continue }
+        if (this.vDec.decodeQueueSize > 3 && r.type === 2) { this.stats.videoSkipped++; this.haveKey = false; continue }
         try { this.vDec.decode(new EncodedVideoChunk({ type: r.type === 1 ? 'key' : 'delta', timestamp: r.ts * 1000, data: r.data })) }
         catch { this.stats.decodeErrors++; this.haveKey = false }
       } else if (r.type === 3) {
@@ -259,6 +266,9 @@ export class Call {
     }
     const loop = async () => {
       let after = -1
+      // Join at the newest tick: a probe with no wait shows how far the other side has got, and we start
+      // START_BEHIND ticks before it rather than swallowing the whole ring as a backlog.
+      try { const probe = await this.relay.poll(-1, 0); if (probe) after = Math.max(-1, probe.seq - START_BEHIND) } catch {}
       while (this.running) {
         try {
           if (this.stream) {
