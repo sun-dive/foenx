@@ -12,11 +12,11 @@
 import { Sender, Receiver, Relay } from './foen.mjs'
 
 const TICK_MS = 100
-const KEY_EVERY = 20
+const KEY_EVERY = 10          // a key frame every second: skipping ahead costs at most that
 const VIDEO = { width: 320, height: 240, fps: 10, bitrate: 250_000 }
 const AUDIO_BITRATE = 24_000
-const JITTER_S = 0.25
-const MAX_LAG_S = 0.4          // audio queued beyond jitter + this is dropped rather than played late
+const JITTER_S = 0.15
+const MAX_LAG_S = 0.25         // audio queued beyond jitter + this is dropped rather than played late
 const START_BEHIND = 2         // on join, take at most this many of the ring's newest ticks
 const MAX_IN_FLIGHT = 8
 
@@ -62,7 +62,8 @@ export class Call {
     this.sender = new Sender(o.d, o.callId)
     this.receiver = new Receiver(o.callId, o.peerPub ?? null)
     this.stats = { framesIn: 0, framesEncoded: 0, audioEncoded: 0, ticksSent: 0, ticksGot: 0, framesDecoded: 0, audioDecoded: 0,
-                   keyWaits: 0, decodeErrors: 0, videoBytes: 0, audioBytes: 0, startedAt: 0, rtts: [], audioDropped: 0, audioLagMs: 0, videoSkipped: 0 }
+                   keyWaits: 0, decodeErrors: 0, videoBytes: 0, audioBytes: 0, startedAt: 0, rtts: [], audioDropped: 0, audioLagMs: 0, videoSkipped: 0, drawWaits: [] }
+    this.arrivals = new Map()
     this.pendingVideo = null
     this.pendingAudio = []
     this.peerSeqSeen = -1
@@ -80,6 +81,7 @@ export class Call {
       elapsedS: Math.round(el), ticksSent: s.ticksSent, ticksGot: s.ticksGot, framesEncoded: s.framesEncoded, framesDecoded: s.framesDecoded,
       audioEncoded: s.audioEncoded, audioDecoded: s.audioDecoded, keyWaits: s.keyWaits, decodeErrors: s.decodeErrors,
       audioDropped: s.audioDropped, audioLagMs: s.audioLagMs, videoSkipped: s.videoSkipped, decodeQueue: this.vDec?.decodeQueueSize ?? 0,
+      drawWaitMs: s.drawWaits.length ? Math.round([...s.drawWaits].sort((a, b) => a - b)[Math.floor(s.drawWaits.length / 2)]) : null,
       verified: r.verified, badSig: r.badSig, badFormat: r.badFormat, stale: r.stale, gaps: r.gaps, missed: r.missed,
       posts: l.posts, postFail: l.postFail, polls: l.polls, pollFail: l.pollFail, maxInFlight: l.maxInFlight,
       rtt: { n: sorted.length, median: q(0.5), p90: q(0.9), max: sorted.length ? Math.round(sorted.at(-1)) : null },
@@ -205,6 +207,8 @@ export class Call {
     this.vDec = new VideoDecoder({
       output: frame => {
         this.stats.framesDecoded++
+        const t = this.arrivals.get(frame.timestamp)
+        if (t !== undefined) { this.stats.drawWaits.push(performance.now() - t); this.arrivals.delete(frame.timestamp); if (this.stats.drawWaits.length > 300) this.stats.drawWaits.shift() }
         if (ctx) {
           if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) { canvas.width = frame.displayWidth; canvas.height = frame.displayHeight }
           ctx.drawImage(frame, 0, 0)
@@ -249,6 +253,7 @@ export class Call {
         if (r.type === 1) this.haveKey = true
         if (!this.haveKey) { this.stats.keyWaits++; continue }
         if (this.vDec.decodeQueueSize > 3 && r.type === 2) { this.stats.videoSkipped++; this.haveKey = false; continue }
+        this.arrivals.set(r.ts * 1000, performance.now()); if (this.arrivals.size > 100) this.arrivals.delete(this.arrivals.keys().next().value)
         try { this.vDec.decode(new EncodedVideoChunk({ type: r.type === 1 ? 'key' : 'delta', timestamp: r.ts * 1000, data: r.data })) }
         catch { this.stats.decodeErrors++; this.haveKey = false }
       } else if (r.type === 3) {
