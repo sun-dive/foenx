@@ -98,6 +98,10 @@ export class Call {
     // Take what the device has: camera and microphone, or either alone, or neither (watch and listen only).
     const video = { width: { ideal: VIDEO.width }, height: { ideal: VIDEO.height }, frameRate: { ideal: VIDEO.fps } }
     const audio = { channelCount: 1, echoCancellation: true, noiseSuppression: true }
+    // A chosen device (the picker in the page): a dock's "sound card" can be a Mac's default input, with
+    // no microphone behind it. `ideal` so a device that has gone away falls back rather than fails.
+    if (this.audioDeviceId) audio.deviceId = { ideal: this.audioDeviceId }
+    if (this.videoDeviceId) video.deviceId = { ideal: this.videoDeviceId }
     this.media = null; this.have = { video: false, audio: false }
     for (const c of [{ video, audio }, { audio }, { video }]) {
       try { this.media = await navigator.mediaDevices.getUserMedia(c); break } catch (e) { this.mediaError = e.name + ': ' + e.message }
@@ -105,6 +109,7 @@ export class Call {
     if (this.media) {
       this.have.video = this.media.getVideoTracks().length > 0
       this.have.audio = this.media.getAudioTracks().length > 0
+      this.devices = { audio: this.media.getAudioTracks()[0]?.label || '', video: this.media.getVideoTracks()[0]?.label || '' }
       if (this.localVideo && this.have.video) { this.localVideo.srcObject = this.media; this.localVideo.muted = true; this.localVideo.play().catch(() => {}) }
     }
     this.audioCtx = new AudioContext({ sampleRate: 48000 })

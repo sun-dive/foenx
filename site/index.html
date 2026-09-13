@@ -63,6 +63,7 @@
   <summary>details</summary>
   <p class="muted">you <code id="pub">…</code><br>call <code id="callid">…</code> · role <b id="role">…</b> · peer <code id="peer">not yet</code></p>
   <p class="muted"><label><input id="stream" type="checkbox" checked> streaming receive (on: the device is the server, nothing buffers in between)</label></p>
+  <p class="muted">microphone <select id="micsel" style="font:inherit;font-size:15px;max-width:100%"><option value="">default</option></select><br>camera <select id="camsel" style="font:inherit;font-size:15px;max-width:100%"><option value="">default</option></select></p>
   <table id="stats"><tbody></tbody></table>
   <p class="muted" id="errors"></p>
 </details>
@@ -143,6 +144,21 @@ refreshBook(); setInterval(() => { if (!call) refreshBook() }, 20000)
 if (q.get('name')) { $('myname').value = q.get('name'); $('register').onclick() }
 window.__foenCallName = async name => { await refreshBook(); const e = listed.find(x => x.name === name); if (!e) throw new Error('not listed: ' + name); await callName(e) }
 
+// Device pickers: labels appear only after a permission has been granted, so they fill in after the first call.
+let pick = { audio: '', video: '' }
+try { pick = JSON.parse(localStorage.getItem('foen:devices') || '{}') } catch {}
+async function fillDevicePickers() {
+  try {
+    const list = await navigator.mediaDevices.enumerateDevices()
+    for (const [kind, sel] of [['audioinput', $('micsel')], ['videoinput', $('camsel')]]) {
+      const cur = kind === 'audioinput' ? pick.audio : pick.video
+      sel.innerHTML = '<option value="">default</option>' + list.filter(d => d.kind === kind).map(d => `<option value="${d.deviceId}"${d.deviceId === cur ? ' selected' : ''}>${(d.label || d.deviceId.slice(0, 8)).replace(/[<>&]/g, '')}</option>`).join('')
+    }
+  } catch {}
+}
+for (const [id, key] of [['micsel', 'audio'], ['camsel', 'video']]) $(id).onchange = () => { pick[key] = $(id).value; try { localStorage.setItem('foen:devices', JSON.stringify(pick)) } catch {}; $('state').textContent = 'device choice saved; it applies to the next call' }
+fillDevicePickers()
+
 let call = null
 function render(s) {
   const rows = [
@@ -171,11 +187,14 @@ async function start() {
   $('state').textContent = 'starting camera…'
   try {
     call = new Call({ d, callId, role, peerPub, relayUrl: new URL('relay.php', location.href).href, stream: $('stream').checked,
+                      audioDeviceId: pick.audio || null, videoDeviceId: pick.video || null,
                       localVideo: $('local'), remoteCanvas: $('remote'), onUpdate: render, onEnded: ended })
     await call.start()
     $('call').textContent = 'Hang up'; $('call').className = 'stop'
-    const have = call.have.video && call.have.audio ? 'camera and microphone' : call.have.video ? 'camera only, no microphone found' : call.have.audio ? 'microphone only, no camera found' : 'no camera or microphone found: watching and listening only'
+    const dv = call.devices ?? {}
+    const have = call.have.video && call.have.audio ? `camera (${dv.video}) and microphone (${dv.audio})` : call.have.video ? `camera only (${dv.video}), no microphone found` : call.have.audio ? `microphone only (${dv.audio}), no camera found` : 'no camera or microphone found: watching and listening only'
     $('state').textContent = (role === 'a' ? 'calling, send the link if you have not · ' : 'waiting for the other side · ') + have
+    fillDevicePickers()
   } catch (e) { $('state').textContent = 'could not start: ' + e.message; call = null }
 }
 $('call').onclick = start
