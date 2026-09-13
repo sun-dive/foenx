@@ -257,6 +257,7 @@ export class Call {
     const t = unpackTick(payload)
     if (!t) return
     this.stats.ticksGot++
+    if (!this.lastHeard) this.onFirstTick?.()
     this.lastHeard = performance.now()
     if (t.records.some(r => r.type === 4)) { this.stop('the other side hung up'); this.onEnded?.(this.endReason); return }
     const st = this.sendTimes.get(t.ack)

@@ -50,7 +50,7 @@ try {
     if (sa && sb) process.stdout.write(`\r  A dec ${sa.framesDecoded} · B dec ${sb.framesDecoded} · rtt ${sa.rtt.median ?? '-'}/${sb.rtt.median ?? '-'}   `)
   }
   console.log('\n')
-  console.log(rang ? `A was rung by "${rang.from}" on call ${rang.callId.slice(0, 8)}…` : 'A was never rung')
+  console.log(rang ? `A was rung by "${rang.from}" on call ${rang.callId.slice(0, 8)}… · incoming bell ${rang.ringing ? 'rang' : 'silent (page untouched)'}` : 'A was never rung')
   console.log('after B hung up, A says: "' + await a.evalJs('document.getElementById("state").textContent') + '" · B says: "' + await b.evalJs('document.getElementById("state").textContent') + '"')
   for (const [name, s] of [['A (answered)', sa], ['B (called by name)', sb]]) {
     if (!s) { console.log(`${name}: no stats`); continue }

@@ -73,7 +73,7 @@ export class Inbox {
             const v = verifyAlone(this.relay.callId, bytes)
             if (!v) continue
             let p; try { p = JSON.parse(dec.decode(v.payload)) } catch { continue }
-            if (p.t === 'invite' && /^[0-9a-f]{32}$/.test(p.call)) onInvite({ callId: p.call, from: String(p.from ?? '').slice(0, 40), pub: v.pub, seq: v.seq })
+            if ((p.t === 'invite' || p.t === 'cancel') && /^[0-9a-f]{32}$/.test(p.call)) onInvite({ t: p.t, callId: p.call, from: String(p.from ?? '').slice(0, 40), pub: v.pub, seq: v.seq })
           }
         } catch { await new Promise(r => setTimeout(r, 500)) }
       }
@@ -83,12 +83,12 @@ export class Inbox {
   stop() { this.running = false }
 }
 
-/** Drop a signed invite into someone's inbox. Returns the new call id. */
-export async function invite(baseUrl, d, myName, theirPub, callId) {
+/** Drop a signed invite (or a cancel of one) into someone's inbox. Returns the call id. */
+export async function invite(baseUrl, d, myName, theirPub, callId, t = 'invite') {
   const inboxId = inboxOf(theirPub)
   const s = new Sender(d, inboxId)
-  s.seq = Math.floor(Date.now() / 1000)
-  const e = s.entry(enc.encode(JSON.stringify({ t: 'invite', call: callId, from: String(myName).slice(0, 40) })))
+  s.seq = Math.floor(Date.now() / 1000) + (t === 'cancel' ? 1 : 0)   // a cancel in the same second still sorts after
+  const e = s.entry(enc.encode(JSON.stringify({ t, call: callId, from: String(myName).slice(0, 40) })))
   const relay = new Relay(new URL('relay.php', baseUrl).href, inboxId, 'a')
   await relay.post(e.seq, e.bytes)
   return callId

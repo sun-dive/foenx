@@ -73,6 +73,7 @@ import { loadKey, newCallId, toHex, fromHex } from './js/foen.mjs'
 import { publicKey } from './js/engine/ecdsa.mjs'
 import { Call, supported } from './js/call.mjs'
 import { Book, Inbox, invite } from './js/book.mjs'
+import * as tones from './js/tones.mjs'
 
 const $ = id => document.getElementById(id)
 const params = new URLSearchParams(location.hash.slice(1))
@@ -113,18 +114,26 @@ $('register').onclick = async () => {
   try { localStorage.setItem('foen:name', myName) } catch {}
   try { await book.register(myName, pub); $('state').textContent = `listed as ${myName}`; refreshBook() } catch (e) { $('state').textContent = 'could not list: ' + e.message }
 }
-let pendingInvite = null
+// Sound is allowed only after the page has been touched once; unlock on the first click or tap.
+document.addEventListener('click', tones.unlock, { once: true }); document.addEventListener('touchstart', tones.unlock, { once: true })
+const RING_S = 30
+let pendingInvite = null, ringTimer = null
+function stopIncoming() { tones.stop('incoming'); $('incoming').hidden = true; pendingInvite = null; if (ringTimer) { clearTimeout(ringTimer); ringTimer = null } }
 inbox.start(inv => {
+  if (inv.t === 'cancel') { if (pendingInvite && pendingInvite.callId === inv.callId) { stopIncoming(); $('state').textContent = `${inv.from || 'the caller'} gave up` }; return }
+  if (call && call.callId === inv.callId) return     // the call we are already in
   pendingInvite = inv                                // busy or not: show it; Answer ends the current call first
   $('fromName').textContent = inv.from || inv.pub && toHex(inv.pub).slice(0, 12)
   $('incoming').hidden = false
-  window.__foenIncoming = { from: inv.from, callId: inv.callId }
+  tones.ring('incoming'); try { navigator.vibrate?.([400, 300, 400]) } catch {}
+  if (ringTimer) clearTimeout(ringTimer); ringTimer = setTimeout(() => { if (pendingInvite) { stopIncoming(); $('state').textContent = 'missed call from ' + (inv.from || 'someone') } }, RING_S * 1000)
+  window.__foenIncoming = { from: inv.from, callId: inv.callId, ringing: tones.isRinging('incoming') }
   if (q.get('auto') === 'answer') answer()
 })
 async function answer() {
   if (!pendingInvite) return
-  const inv = pendingInvite; pendingInvite = null
-  $('incoming').hidden = true
+  const inv = pendingInvite
+  stopIncoming()
   if (call) { call.stop(); call = null }
   callId = inv.callId; role = 'b'; peerPub = inv.pub
   $('callid').textContent = callId; $('role').textContent = role; $('peer').textContent = toHex(peerPub)
@@ -137,8 +146,14 @@ async function callName(e) {
   $('callid').textContent = callId; $('role').textContent = role; $('peer').textContent = e.pubHex
   $('state').textContent = `calling ${e.name}…`
   try { await invite(location.href, d, myName || 'someone', e.pub, callId) } catch (err) { $('state').textContent = 'could not ring them: ' + err.message; return }
+  outgoing = { pub: e.pub, name: e.name, callId }
   await start()
+  if (!call) { outgoing = null; return }
   $('state').textContent = `calling ${e.name}… ` + $('state').textContent
+  tones.ring('outgoing')
+  const c = call
+  const noAnswer = setTimeout(() => { if (call === c && outgoing) { c.stop('no answer'); ended('no answer') } }, RING_S * 1000)
+  c.onFirstTick = () => { clearTimeout(noAnswer); tones.stop('outgoing'); outgoing = null; $('state').textContent = `in a call with ${e.name}` }
 }
 refreshBook(); setInterval(() => { if (!call) refreshBook() }, 20000)
 if (q.get('name')) { $('myname').value = q.get('name'); $('register').onclick() }
@@ -179,7 +194,12 @@ function render(s) {
   window.__foenStats = s
 }
 
+let outgoing = null   // { pub, name, callId } while an outgoing call is still unanswered
 function ended(reason) {
+  tones.stopAll()
+  if (outgoing && reason === 'you hung up') { invite(location.href, d, myName || 'someone', outgoing.pub, outgoing.callId, 'cancel').catch(() => {}) }
+  if (outgoing && reason === 'no answer') tones.failed()
+  outgoing = null
   call = null; $('call').textContent = 'Call'; $('call').className = 'primary'; $('state').textContent = 'ended: ' + reason
 }
 async function start() {
