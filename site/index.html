@@ -91,7 +91,7 @@ if (peerPub) $('peer').textContent = toHex(peerPub)
 if (!supported()) { $('state').textContent = 'This browser cannot encode video in the page. Chrome, Edge or Chrome on Android can.'; $('call').disabled = true }
 
 // ── phone book + inbox ──
-const book = new Book(location.href, d)
+const book = new Book(location.href, d, q.get('book') || '')
 const inbox = new Inbox(location.href, pub)
 let listed = []
 let myName = ''

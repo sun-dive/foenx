@@ -29,6 +29,12 @@ $dataRoot = (static function (): string {
     }
     return __DIR__ . '/data/book';
 })();
+// Separate books by name (?b=test), so test runs never appear in the real one.
+$bookName = $_GET['b'] ?? '';
+if ($bookName !== '') {
+    if (!preg_match('/^[a-z0-9-]{1,16}$/', $bookName)) out(['error' => 'bad book name'], 400);
+    $dataRoot .= "-$bookName";
+}
 if (!is_dir($dataRoot)) @mkdir($dataRoot, 0700, true);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {

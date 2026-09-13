@@ -29,7 +29,7 @@ function verifyAlone(callId, bytes) {
 }
 
 export class Book {
-  constructor(baseUrl, d) { this.url = new URL('book.php', baseUrl).href; this.d = d }
+  constructor(baseUrl, d, bookName = '') { this.url = new URL('book.php' + (bookName ? '?b=' + encodeURIComponent(bookName) : ''), baseUrl).href; this.d = d }
   /** List yourself under a name. The signed listing carries the key it is signed with. */
   async register(name, pub) {
     const s = new Sender(this.d, BOOK_ID)
