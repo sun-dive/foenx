@@ -20,12 +20,12 @@ deployment:
     - /bin/mkdir -p "$DEPLOYPATH/js/engine" "$DEPLOYPATH/js/vendor/noble-hashes"
     - /bin/cp site/index.html site/test.html "$DEPLOYPATH/"
     - /bin/cp site/.htaccess "$DEPLOYPATH/.htaccess"
-    - /bin/cp site/js/foen.mjs site/js/call.mjs "$DEPLOYPATH/js/"
+    - /bin/cp site/js/foen.mjs site/js/call.mjs site/js/book.mjs "$DEPLOYPATH/js/"
     - /bin/cp site/js/engine/*.mjs site/js/engine/README "$DEPLOYPATH/js/engine/"
     - /bin/cp site/js/vendor/noble-hashes/*.js site/js/vendor/noble-hashes/LICENSE site/js/vendor/noble-hashes/README "$DEPLOYPATH/js/vendor/noble-hashes/"
     # The relay keeps call tips OUTSIDE every docroot.
     - /bin/mkdir -p "$HOME/foen-data" && /bin/chmod 700 "$HOME/foen-data"
-    - /bin/cp server/relay.php "$DEPLOYPATH/relay.php"
+    - /bin/cp server/relay.php server/book.php "$DEPLOYPATH/"
     # what is live - https://foen.xyz/version.txt
     - git rev-parse --short HEAD > "$DEPLOYPATH/version.txt"
     - echo "foen ← $(git rev-parse --short HEAD)"

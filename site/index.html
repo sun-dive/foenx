@@ -39,11 +39,22 @@
   <video id="local" playsinline autoplay muted></video>
 </div>
 
+<div class="card" id="incoming" hidden>
+  <p><b>Incoming call from <span id="fromName">…</span></b></p>
+  <button class="primary" id="answer">Answer</button>
+</div>
+
 <button class="primary" id="call">Call</button>
 <p class="muted" id="state"></p>
 
+<div class="card" id="book">
+  <p class="muted">Phone book. List yourself under a name, then call anyone listed with one press.</p>
+  <p><input id="myname" placeholder="your name" maxlength="40" style="font:inherit;padding:8px;border-radius:8px;border:1px solid #8886;width:60%"> <button id="register" style="width:auto;font-size:18px;padding:8px 14px">List me</button></p>
+  <div id="names" class="muted">nobody listed yet</div>
+</div>
+
 <div class="card" id="invite" hidden>
-  <p class="muted">Send this link to the other side. When they open it and press Call, you see each other.</p>
+  <p class="muted">Or send this link to the other side. When they open it and press Call, you see each other.</p>
   <textarea id="link" rows="3" readonly></textarea>
 </div>
 
@@ -59,6 +70,7 @@
 import { loadKey, newCallId, toHex, fromHex } from './js/foen.mjs'
 import { publicKey } from './js/engine/ecdsa.mjs'
 import { Call, supported } from './js/call.mjs'
+import { Book, Inbox, invite } from './js/book.mjs'
 
 const $ = id => document.getElementById(id)
 const params = new URLSearchParams(location.hash.slice(1))
@@ -77,6 +89,58 @@ if (!callId) {
 $('callid').textContent = callId; $('role').textContent = role
 if (peerPub) $('peer').textContent = toHex(peerPub)
 if (!supported()) { $('state').textContent = 'This browser cannot encode video in the page. Chrome, Edge or Chrome on Android can.'; $('call').disabled = true }
+
+// ── phone book + inbox ──
+const book = new Book(location.href, d)
+const inbox = new Inbox(location.href, pub)
+let listed = []
+let myName = ''
+try { myName = localStorage.getItem('foen:name') || '' } catch {}
+$('myname').value = myName
+async function refreshBook() {
+  try {
+    listed = (await book.list()).filter(e => e.pubHex !== toHex(pub))
+    $('names').innerHTML = listed.length
+      ? listed.map((e, i) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #8883"><span>${e.name.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</span><button data-i="${i}" class="callname" style="width:auto;font-size:18px;padding:8px 16px">Call</button></div>`).join('')
+      : 'nobody else listed yet'
+    for (const b of document.querySelectorAll('.callname')) b.onclick = () => callName(listed[+b.dataset.i])
+  } catch (e) { $('names').textContent = 'book unavailable: ' + e.message }
+}
+$('register').onclick = async () => {
+  myName = $('myname').value.trim(); if (!myName) return
+  try { localStorage.setItem('foen:name', myName) } catch {}
+  try { await book.register(myName, pub); $('state').textContent = `listed as ${myName}`; refreshBook() } catch (e) { $('state').textContent = 'could not list: ' + e.message }
+}
+let pendingInvite = null
+inbox.start(inv => {
+  if (call) return                                   // busy: ignore
+  pendingInvite = inv
+  $('fromName').textContent = inv.from || inv.pub && toHex(inv.pub).slice(0, 12)
+  $('incoming').hidden = false
+  window.__foenIncoming = { from: inv.from, callId: inv.callId }
+  if (q.get('auto') === 'answer') answer()
+})
+async function answer() {
+  if (!pendingInvite) return
+  const inv = pendingInvite; pendingInvite = null
+  $('incoming').hidden = true
+  callId = inv.callId; role = 'b'; peerPub = inv.pub
+  $('callid').textContent = callId; $('role').textContent = role; $('peer').textContent = toHex(peerPub)
+  await start()
+}
+$('answer').onclick = answer
+async function callName(e) {
+  if (call) return
+  callId = newCallId(); role = 'a'; peerPub = e.pub
+  $('callid').textContent = callId; $('role').textContent = role; $('peer').textContent = e.pubHex
+  $('state').textContent = `calling ${e.name}…`
+  try { await invite(location.href, d, myName || 'someone', e.pub, callId) } catch (err) { $('state').textContent = 'could not ring them: ' + err.message; return }
+  await start()
+  $('state').textContent = `calling ${e.name}… ` + $('state').textContent
+}
+refreshBook(); setInterval(() => { if (!call) refreshBook() }, 20000)
+if (q.get('name')) { $('myname').value = q.get('name'); $('register').onclick() }
+window.__foenCallName = async name => { await refreshBook(); const e = listed.find(x => x.name === name); if (!e) throw new Error('not listed: ' + name); await callName(e) }
 
 let call = null
 function render(s) {
@@ -110,7 +174,8 @@ async function start() {
   } catch (e) { $('state').textContent = 'could not start: ' + e.message; call = null }
 }
 $('call').onclick = start
-if (q.get('auto')) { $('stream').checked = q.get('stream') !== '0'; start() }
+if (q.get('auto') === '1') { $('stream').checked = q.get('stream') !== '0'; start() }
+if (q.get('stream') === '0') $('stream').checked = false
 </script>
 </body>
 </html>
