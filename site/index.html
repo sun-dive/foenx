@@ -114,8 +114,7 @@ $('register').onclick = async () => {
 }
 let pendingInvite = null
 inbox.start(inv => {
-  if (call) return                                   // busy: ignore
-  pendingInvite = inv
+  pendingInvite = inv                                // busy or not: show it; Answer ends the current call first
   $('fromName').textContent = inv.from || inv.pub && toHex(inv.pub).slice(0, 12)
   $('incoming').hidden = false
   window.__foenIncoming = { from: inv.from, callId: inv.callId }
@@ -125,6 +124,7 @@ async function answer() {
   if (!pendingInvite) return
   const inv = pendingInvite; pendingInvite = null
   $('incoming').hidden = true
+  if (call) { call.stop(); call = null }
   callId = inv.callId; role = 'b'; peerPub = inv.pub
   $('callid').textContent = callId; $('role').textContent = role; $('peer').textContent = toHex(peerPub)
   await start()
@@ -146,7 +146,7 @@ window.__foenCallName = async name => { await refreshBook(); const e = listed.fi
 let call = null
 function render(s) {
   const rows = [
-    ['elapsed', s.elapsedS + ' s'], ['ticks sent / got', `${s.ticksSent} / ${s.ticksGot}`],
+    ['elapsed · since last heard', `${s.elapsedS} s · ${s.lastHeardS ?? '–'} s`], ['ticks sent / got', `${s.ticksSent} / ${s.ticksGot}`],
     ['video frames encoded / decoded', `${s.framesEncoded} / ${s.framesDecoded}`],
     ['audio packets encoded / decoded', `${s.audioEncoded} / ${s.audioDecoded}`],
     ['waiting for a key frame', s.keyWaits], ['decode errors', s.decodeErrors],
@@ -163,12 +163,15 @@ function render(s) {
   window.__foenStats = s
 }
 
+function ended(reason) {
+  call = null; $('call').textContent = 'Call'; $('call').className = 'primary'; $('state').textContent = 'ended: ' + reason
+}
 async function start() {
-  if (call) { call.stop(); call = null; $('call').textContent = 'Call'; $('call').className = 'primary'; $('state').textContent = 'ended'; return }
+  if (call) { call.stop('you hung up'); ended('you hung up'); return }
   $('state').textContent = 'starting camera…'
   try {
     call = new Call({ d, callId, role, peerPub, relayUrl: new URL('relay.php', location.href).href, stream: $('stream').checked,
-                      localVideo: $('local'), remoteCanvas: $('remote'), onUpdate: render })
+                      localVideo: $('local'), remoteCanvas: $('remote'), onUpdate: render, onEnded: ended })
     await call.start()
     $('call').textContent = 'Hang up'; $('call').className = 'stop'
     const have = call.have.video && call.have.audio ? 'camera and microphone' : call.have.video ? 'camera only, no microphone found' : call.have.audio ? 'microphone only, no camera found' : 'no camera or microphone found: watching and listening only'

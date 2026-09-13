@@ -41,15 +41,17 @@ try {
   await wait(2500)
   await b.evalJs(`window.__foenCallName('Alice-${tag}')`)
   const t0 = Date.now()
-  let sa = null, sb = null, rang = null
+  let sa = null, sb = null, rang = null, hungUp = false
   while (Date.now() - t0 < +seconds * 1000) {
     await wait(1000)
+    if (!hungUp && Date.now() - t0 > (+seconds - 6) * 1000) { hungUp = true; await b.evalJs('document.getElementById("call").click()'); console.log('\n  B pressed Hang up') }
     rang = rang || await a.evalJs('window.__foenIncoming || null')
     sa = await a.evalJs('window.__foenStats || null'); sb = await b.evalJs('window.__foenStats || null')
     if (sa && sb) process.stdout.write(`\r  A dec ${sa.framesDecoded} · B dec ${sb.framesDecoded} · rtt ${sa.rtt.median ?? '-'}/${sb.rtt.median ?? '-'}   `)
   }
   console.log('\n')
   console.log(rang ? `A was rung by "${rang.from}" on call ${rang.callId.slice(0, 8)}…` : 'A was never rung')
+  console.log('after B hung up, A says: "' + await a.evalJs('document.getElementById("state").textContent') + '" · B says: "' + await b.evalJs('document.getElementById("state").textContent') + '"')
   for (const [name, s] of [['A (answered)', sa], ['B (called by name)', sb]]) {
     if (!s) { console.log(`${name}: no stats`); continue }
     console.log(`${name}: ${s.elapsedS}s · ticks ${s.ticksSent}/${s.ticksGot} · video ${s.framesEncoded}→${s.framesDecoded} · audio ${s.audioEncoded}→${s.audioDecoded} · audio buffer ${s.audioLagMs} ms dropped ${s.audioDropped} · video skipped ${s.videoSkipped} draw-wait ${s.drawWaitMs} ms · errors ${s.decodeErrors} · badSig ${s.badSig} · gaps ${s.gaps} · rtt med ${s.rtt.median} p90 ${s.rtt.p90} · send ${s.sendKbps} recv ${s.recvKbps} kbit/s`)

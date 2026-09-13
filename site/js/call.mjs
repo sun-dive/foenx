@@ -5,7 +5,7 @@
 // A TICK is one entry per 100 ms. Its payload:
 //   [0..4)  ack: the highest peer seq seen (u32 BE), for round-trip measurement without shared clocks
 //   then records, each  [type u8][timestamp ms u32 BE][length u32 BE][data]
-//   type 1 = video key frame · 2 = video delta frame · 3 = audio packet
+//   type 1 = video key frame · 2 = video delta frame · 3 = audio packet · 4 = bye (the sender is hanging up)
 // Video is VP8, audio is Opus, both from WebCodecs. A key frame every KEY_EVERY ticks, so a late joiner
 // or a lost tick recovers inside the relay's ring.
 
@@ -18,6 +18,7 @@ const AUDIO_BITRATE = 24_000
 const JITTER_S = 0.15
 const MAX_LAG_S = 0.25         // audio queued beyond jitter + this is dropped rather than played late
 const START_BEHIND = 2         // on join, take at most this many of the ring's newest ticks
+const SILENCE_S = 10           // nothing verified from the other side for this long: they are gone
 const MAX_IN_FLIGHT = 8
 
 const u32be = n => Uint8Array.of((n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255)
@@ -115,7 +116,11 @@ export class Call {
     this.receiveLoop()
   }
 
-  stop() {
+  /** Hang up: tell the other side, then stop. */
+  stop(reason = 'hung up') {
+    if (!this.running) return
+    try { const e = this.sender.entry(packTick(this.peerSeqSeen, [{ type: 4, ts: 0, data: new Uint8Array(0) }])); this.relay.postAsync(e.seq, e.bytes) } catch {}
+    this.endReason = reason
     this.running = false
     try { this.media?.getTracks().forEach(t => t.stop()) } catch {}
     try { this.vEnc?.close(); this.aEnc?.close(); this.vDec?.close(); this.aDec?.close() } catch {}
@@ -195,6 +200,7 @@ export class Call {
           this.stats.ticksSent++
         }
         this.onUpdate?.(this.summary())
+        if (this.lastHeard && performance.now() - this.lastHeard > SILENCE_S * 1000) { this.stop('the other side stopped answering'); this.onEnded?.(this.endReason); break }
         await new Promise(r => setTimeout(r, TICK_MS))
       }
     }
@@ -246,6 +252,8 @@ export class Call {
     const t = unpackTick(payload)
     if (!t) return
     this.stats.ticksGot++
+    this.lastHeard = performance.now()
+    if (t.records.some(r => r.type === 4)) { this.stop('the other side hung up'); this.onEnded?.(this.endReason); return }
     const st = this.sendTimes.get(t.ack)
     if (st !== undefined) { this.stats.rtts.push(performance.now() - st); this.sendTimes.delete(t.ack) }
     for (const r of t.records) {
