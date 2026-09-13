@@ -1,0 +1,1 @@
+jetmora/ = copies of jetmora tools/entry.mjs (working tree at 182a360, with the unlocking/locking guards that match server/covenant-entry.php), tools/sha256.mjs (unmodified), and tools/preimage.mjs with ONE change: it imports sha256 from ./sha256.mjs instead of node:crypto so it runs in a page. Apache-2.0, (c) 2026 sun-dive. Refresh from jetmora; never edit here.

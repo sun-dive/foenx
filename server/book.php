@@ -41,9 +41,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $body = file_get_contents('php://input', false, null, 0, MAX_ENTRY + 1);
     if ($body === false || strlen($body) < 104) out(['error' => 'not an entry'], 400);
     if (strlen($body) > MAX_ENTRY) out(['error' => 'too large'], 413);
-    // The sender's key sits at bytes 69..102 of the header; the file is named by it, so one listing per key.
-    $pub = bin2hex(substr($body, 69, 33));
-    if (!preg_match('/^0[23][0-9a-f]{64}$/', $pub)) out(['error' => 'bad key'], 400);
+    // A listing is a jetmora entry: version(4) varint(1) prevEntry(32) index(4) varint(unlocking) then the
+    // unlocking script <sig‖0x01> <pub>. The file is named by the key, so one listing per key.
+    $p = 41;
+    $ulen = ord($body[$p] ?? "\0"); $p++;                       // unlocking length (one-byte varint here)
+    $slen = ord($body[$p] ?? "\0"); $p++;                       // push of the signature
+    $p += $slen;
+    if (($body[$p] ?? '') !== "\x21") out(['error' => 'bad key'], 400);  // push of a 33-byte key
+    $pub = bin2hex(substr($body, $p + 1, 33));
+    if (!preg_match('/^0[23][0-9a-f]{64}$/', $pub) || $ulen !== $slen + 35) out(['error' => 'bad key'], 400);
     $tmp = "$dataRoot/$pub.tmp";
     if (file_put_contents($tmp, $body) !== strlen($body)) { @unlink($tmp); out(['error' => 'write failed'], 500); }
     rename($tmp, "$dataRoot/$pub.e");

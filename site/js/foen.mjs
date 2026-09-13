@@ -16,13 +16,9 @@
 //   [103+L..) payload
 // tip = sha256(header[0..102)) · genesis = sha256("foen-call-v1" ‖ callId ‖ senderPub)
 
-import { sha256 } from '@noble/hashes/sha2.js'
 import { N } from './engine/secp256k1.mjs'
-import { sign, verifyDigest, publicKey } from './engine/ecdsa.mjs'
-import { concat, toHex, fromHex, fromUtf8, toBigBE, beBytes } from './engine/bytes.mjs'
+import { toHex, fromHex, toBigBE, beBytes } from './engine/bytes.mjs'
 
-const VERSION = 1
-const HEADER = 102
 const MAX_IN_FLIGHT = 8
 
 export function newKey() {
@@ -40,77 +36,12 @@ export function loadKey() {
   return d
 }
 export const newCallId = () => toHex(crypto.getRandomValues(new Uint8Array(16)))
-export const genesisOf = (callId, pub) => sha256(concat(fromUtf8('foen-call-v1'), fromHex(callId), pub))
 
 const u32be = n => Uint8Array.of((n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255)
 const readU32be = (b, o) => ((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]) >>> 0
 
-/** The sending side of one direction: signs each chunk over the previous tip. */
-export class Sender {
-  constructor(d, callId) {
-    this.d = d
-    this.pub = publicKey(d)
-    this.genesis = genesisOf(callId, this.pub)
-    this.tip = this.genesis
-    this.seq = 0
-  }
-  /** Build the next entry. */
-  entry(payload) {
-    const header = concat(Uint8Array.of(VERSION), u32be(this.seq), this.tip, sha256(payload), this.pub)
-    const sig = sign(this.d, sha256(concat(this.genesis, header)), { lowS: true })
-    const e = concat(header, Uint8Array.of(sig.length), sig, payload)
-    this.tip = sha256(header)
-    const seq = this.seq++
-    return { seq, bytes: e }
-  }
-}
-
-/** The receiving side of one direction: verifies each entry, tracks the tip, reports gaps. */
-export class Receiver {
-  constructor(callId, peerPub = null) {
-    this.callId = callId
-    this.peerPub = peerPub
-    this.genesis = peerPub ? genesisOf(callId, peerPub) : null
-    this.tip = this.genesis
-    this.seq = -1
-    this.stats = { received: 0, verified: 0, badSig: 0, badFormat: 0, stale: 0, gaps: 0, missed: 0, bytes: 0 }
-  }
-  /** Returns { seq, linked, payload } for a good entry, or null (and counts why). */
-  accept(bytes) {
-    const s = this.stats
-    s.received++
-    if (bytes.length < HEADER + 1 || bytes[0] !== VERSION) { s.badFormat++; return null }
-    const seq = readU32be(bytes, 1)
-    const prev = bytes.subarray(5, 37)
-    const payloadHash = bytes.subarray(37, 69)
-    const pub = bytes.subarray(69, 102)
-    const L = bytes[102]
-    if (bytes.length < HEADER + 1 + L) { s.badFormat++; return null }
-    const sig = bytes.subarray(103, 103 + L)
-    const payload = bytes.subarray(103 + L)
-    if (toHex(sha256(payload)) !== toHex(payloadHash)) { s.badFormat++; return null }
-    if (seq <= this.seq) { s.stale++; return null }
-    const header = bytes.subarray(0, HEADER)
-
-    // A call is between the two keys that speak on it: the first verified entry fixes the peer's key
-    // for the call (or it must match the key the invitation named); every later entry must carry it.
-    if (this.peerPub === null) {
-      const g = genesisOf(this.callId, pub)
-      if (!verifyDigest(sig, pub, sha256(concat(g, header)))) { s.badSig++; return null }
-      this.peerPub = new Uint8Array(pub); this.genesis = g; this.tip = g
-    } else {
-      if (toHex(pub) !== toHex(this.peerPub)) { s.badSig++; return null }
-      if (!verifyDigest(sig, this.peerPub, sha256(concat(this.genesis, header)))) { s.badSig++; return null }
-    }
-
-    const linked = toHex(prev) === toHex(this.tip)
-    if (!linked) { s.gaps++; s.missed += seq - this.seq - 1 }
-    this.tip = sha256(header)
-    this.seq = seq
-    s.verified++; s.bytes += bytes.length
-    return { seq, linked, payload }
-  }
-}
+// The entry format is jetmora's: see thread.mjs. Sender and Receiver are re-exported from there.
+export { Sender, Receiver } from './thread.mjs'
 
 /** Talks to relay.php for one call. `mine`/`theirs` are the two direction letters. */
 export class Relay {
@@ -190,7 +121,7 @@ export class Test {
     const q = p => sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] : null
     const elapsed = this.startedAt ? (performance.now() - this.startedAt) / 1000 : 0
     return {
-      elapsedS: Math.round(elapsed), sent: this.sender.seq, ...r, posts: l.posts, postFail: l.postFail,
+      elapsedS: Math.round(elapsed), sent: this.sender.seq - 1, ...r, posts: l.posts, postFail: l.postFail,
       polls: l.polls, pollEmpty: l.pollEmpty, pollFail: l.pollFail, streams: l.streams, maxInFlight: l.maxInFlight, mode: this.stream ? 'stream' : 'poll',
       ackRttMs: { n: sorted.length, median: q(0.5), p90: q(0.9), max: sorted.at(-1) ?? null },
       kbps: elapsed > 0 ? Math.round(r.bytes * 8 / 1000 / elapsed) : 0,
