@@ -5,13 +5,17 @@
 // Every tick is a jetmora ENTRY (spec §3: an entry is a transaction), built exactly as
 // jetmora/server/wallet/jetmora/thread.php builds one:
 //   input 0   spends the tip: prevEntry = the previous entry's hash (the genesis id for the first tick),
-//             index 0, sequence = the tick index, unlocking = <sig‖0x01> <pub>
-//   output 0  the successor tip, locked to the same key:  <state> OP_DROP OP_DUP OP_HASH160 <h160(pub)> OP_EQUALVERIFY OP_CHECKSIG
-//   output 1  the tick's payload:  OP_FALSE OP_RETURN <payload>
-//   version   family SV revision 1 · locktime 0 · value 0 (§3: an application quantity, MAY be zero)
-// The covenant signature is over SHA256d of the BIP143-layout preimage of input 0 against the previous
-// tip's locking script (spec §3, sighash 0x01, no FORKID). The state carried in the lock is the call id,
-// so a tick from another call fails the lock check even when signed by the same key.
+//             index 0, sequence = the tick index, unlocking = <sig> <pub> as two jetForth direct pushes
+//   output 0  the successor tip, locked to the same key, in jetForth (family JF, revision 1):
+//               $<call id> 2DROP  2DUP 1000 HASH160  1000 20 $<h160(pub)> BYTES=  >R
+//               2000 PREIMAGE 3000 HASH256  3000 32 CHECKSIG  R> AND
+//             the call id is carried and dropped; the key must hash to the committed hash; the signature
+//             must verify over HASH256 of the preimage the verifier supplies. Both flags are ANDed, so
+//             the lock has no branches and reads the same whichever check fails.
+//   output 1  the tick's payload:  STR16 <payload> ABORT  (never spendable, and says so)
+//   locktime 0 · value 0 (§3: an application quantity, MAY be zero)
+// jetForth's CHECKSIG takes an explicit digest: the signature is a bare DER over SHA256d(preimage), the
+// preimage being the BIP143 layout of input 0 against the previous tip's lock (spec §3, type 0x01).
 //
 // The genesis is native and derived (§2): SHA256d( LP(source_hash) ‖ LP(script) ‖ LP(state) ‖ LP(authorised) ),
 // with authorised = 0x02 ‖ k ‖ n ‖ (32 ‖ sha256(pub)) — hashes, never keys in the clear (his rule, 7 Sept).
@@ -23,44 +27,67 @@ import { ripemd160 } from '@noble/hashes/legacy.js'
 import { sign, verifyDigest, publicKey } from './engine/ecdsa.mjs'
 import { toHex, fromHex } from './engine/bytes.mjs'
 
-export const VERSION_SV1 = ((0x56 << 24) | (0x53 << 16) | 1) >>> 0      // family 'SV', revision 1
-const SOURCE_HASH = sha256([...new TextEncoder().encode('foen thread v1: <state> DROP then P2PKH, one data output per tick')])
-const OP = { FALSE: 0x00, RETURN: 0x6a, DROP: 0x75, DUP: 0x76, HASH160: 0xa9, EQUALVERIFY: 0x88, CHECKSIG: 0xac, PUSHDATA1: 0x4c, PUSHDATA2: 0x4d, PUSHDATA4: 0x4e }
+export const VERSION_JF1 = ((0x46 << 24) | (0x4a << 16) | 1) >>> 0      // family 'JF', revision 1
+const SOURCE_HASH = sha256([...new TextEncoder().encode('foen thread v1 (jetForth): state 2DROP, key hash check, CHECKSIG over HASH256 of PREIMAGE, ANDed; one STR16 data output per tick')])
+// jetForth bytes (jetmora/server/ops-jf.php): a direct push is its own length (1..72); LIT8/LIT16 carry
+// integers; STR16/STR32 carry long strings. Words by number.
+const JF = { PUSH_MAX: 0x48, SMALL0: 0x49, LIT8: 0x53, LIT16: 0x54, STR16: 0x59, STR32: 0x5a,
+  '2DROP': 0x6f, '2DUP': 0x70, '>R': 0x79, 'R>': 0x9f, AND: 0x7f, ABORT: 0x7c,
+  'BYTES=': 0xbc, CHECKSIG: 0xc1, HASH160: 0xc3, HASH256: 0xc4, PREIMAGE: 0xcc }
 
 const dsha256 = b => sha256(sha256(b))
 const hash160 = pub => [...ripemd160(Uint8Array.from(sha256([...pub])))]
 const lp = b => [(b.length >>> 24) & 255, (b.length >>> 16) & 255, (b.length >>> 8) & 255, b.length & 255, ...b]
 const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i])
 
-/** Minimal push of `data` (Bitcoin script encoding). */
+/** A jetForth direct push: the opcode is the length (1..72 bytes). */
 export function push(data) {
-  const n = data.length
-  if (n === 0) return [OP.FALSE]
-  if (n <= 75) return [n, ...data]
-  if (n <= 0xff) return [OP.PUSHDATA1, n, ...data]
-  if (n <= 0xffff) return [OP.PUSHDATA2, n & 255, n >> 8, ...data]
-  return [OP.PUSHDATA4, n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255, ...data]
+  if (data.length < 1 || data.length > JF.PUSH_MAX) throw new Error(`direct push must be 1..${JF.PUSH_MAX} bytes`)
+  return [data.length, ...data]
 }
-/** Read the pushes of a script; null if it is not purely pushes. */
+/** A jetForth integer literal in its smallest form, as jf_asm emits it. */
+export function lit(v) {
+  if (v >= 0 && v <= 8) return [JF.SMALL0 + v]
+  if (v >= -128 && v <= 127) return [JF.LIT8, v & 255]
+  if (v >= -32768 && v <= 32767) return [JF.LIT16, v & 255, (v >> 8) & 255]
+  throw new Error('literal out of range for this lock')
+}
+/** Read the direct pushes of a script; null if it holds anything else. */
 export function pushes(script) {
   const out = []
   for (let p = 0; p < script.length;) {
-    const op = script[p++]; let n
-    if (op === OP.FALSE) { out.push([]); continue }
-    if (op <= 75) n = op
-    else if (op === OP.PUSHDATA1) { n = script[p]; p += 1 }
-    else if (op === OP.PUSHDATA2) { n = script[p] | (script[p + 1] << 8); p += 2 }
-    else if (op === OP.PUSHDATA4) { n = (script[p] | (script[p + 1] << 8) | (script[p + 2] << 16) | (script[p + 3] << 24)) >>> 0; p += 4 }
-    else return null
-    if (p + n > script.length) return null
+    const n = script[p++]
+    if (n < 1 || n > JF.PUSH_MAX || p + n > script.length) return null
     out.push(script.slice(p, p + n)); p += n
   }
   return out
 }
 
-/** The tip's locking script for a key in a given call: <state> OP_DROP OP_DUP OP_HASH160 <h160> OP_EQUALVERIFY OP_CHECKSIG */
-export const lockFor = (state, pub) => [...push(state), OP.DROP, OP.DUP, OP.HASH160, ...push(hash160(pub)), OP.EQUALVERIFY, OP.CHECKSIG]
-export const dataOutput = payload => [OP.FALSE, OP.RETURN, ...push([...payload])]
+/** The tip's lock in jetForth for a key in a call (see the header). Byte-identical to jf_asm of the source. */
+export const lockFor = (state, pub) => [
+  ...push(state), JF['2DROP'],
+  JF['2DUP'], ...lit(1000), JF.HASH160,
+  ...lit(1000), ...lit(20), ...push(hash160(pub)), JF['BYTES='], JF['>R'],
+  ...lit(2000), JF.PREIMAGE, ...lit(3000), JF.HASH256,
+  ...lit(3000), ...lit(32), JF.CHECKSIG,
+  JF['R>'], JF.AND,
+]
+/** The payload output: STR16 (or STR32) <payload> ABORT. Never spendable, and says so. */
+export const dataOutput = payload => {
+  const n = payload.length
+  return n <= 0xffff ? [JF.STR16, n & 255, n >> 8, ...payload, JF.ABORT]
+                     : [JF.STR32, n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255, ...payload, JF.ABORT]
+}
+/** Read a payload output back; null if it is not one. */
+export function readData(script) {
+  if (script.length < 4 || script[script.length - 1] !== JF.ABORT) return null
+  let n, p
+  if (script[0] === JF.STR16) { n = script[1] | (script[2] << 8); p = 3 }
+  else if (script[0] === JF.STR32) { n = (script[1] | (script[2] << 8) | (script[3] << 16) | (script[4] << 24)) >>> 0; p = 5 }
+  else return null
+  if (p + n + 1 !== script.length) return null
+  return script.slice(p, p + n)
+}
 export const authorisedHashes = (pubs, k = 1) => {
   const hs = pubs.map(p => sha256([...p])).sort((a, b) => toHex(a) < toHex(b) ? -1 : 1)
   return [0x02, k, hs.length, ...hs.flatMap(h => [h.length, ...h])]
@@ -85,10 +112,10 @@ export class Sender {
   /** Tick: spend the tip, produce the successor and the payload. Returns { seq, bytes } (bytes: Uint8Array). */
   entry(payload) {
     const seq = this.seq++
-    const skeleton = { version: VERSION_SV1, inputs: [{ prevEntry: this.tip, index: 0, unlocking: [], sequence: seq }],
+    const skeleton = { version: VERSION_JF1, inputs: [{ prevEntry: this.tip, index: 0, unlocking: [], sequence: seq }],
                        outputs: [{ value: 0n, locking: this.lock }, { value: 0n, locking: dataOutput(payload) }], locktime: 0 }
     const pre = preimage({ entry: skeleton, inputIndex: 0, scriptCode: this.lock, value: 0n })
-    const sig = [...sign(this.d, Uint8Array.from(dsha256(pre)), { lowS: true }), 0x01]
+    const sig = [...sign(this.d, Uint8Array.from(dsha256(pre)), { lowS: true })]   // bare DER: JF's CHECKSIG takes the digest explicitly
     const entry = { ...skeleton, inputs: [{ ...skeleton.inputs[0], unlocking: [...push(sig), ...push(this.pub)] }] }
     const bytes = serializeEntry(entry)
     this.tip = dsha256(bytes)
@@ -113,15 +140,13 @@ export class Receiver {
     const b = [...bytes]
     let e
     try { e = parseEntry(b) } catch { s.badFormat++; return null }
-    if (e.version !== VERSION_SV1 || e.inputs.length !== 1 || e.outputs.length < 2 || e.locktime !== 0) { s.badFormat++; return null }
+    if (e.version !== VERSION_JF1 || e.inputs.length !== 1 || e.outputs.length < 2 || e.locktime !== 0) { s.badFormat++; return null }
     const inp = e.inputs[0]
     const ul = pushes(inp.unlocking)
-    if (!ul || ul.length !== 2 || ul[1].length !== 33 || ul[0].length < 9 || ul[0][ul[0].length - 1] !== 0x01) { s.badFormat++; return null }
-    const sig = ul[0].slice(0, -1), pub = ul[1]
-    const data = e.outputs[1].locking
-    if (data[0] !== OP.FALSE || data[1] !== OP.RETURN) { s.badFormat++; return null }
-    const dp = pushes(data.slice(2))
-    if (!dp || dp.length !== 1) { s.badFormat++; return null }
+    if (!ul || ul.length !== 2 || ul[1].length !== 33 || ul[0].length < 8) { s.badFormat++; return null }
+    const sig = ul[0], pub = ul[1]
+    const payload = readData(e.outputs[1].locking)
+    if (!payload) { s.badFormat++; return null }
     if (inp.sequence <= this.seq) { s.stale++; return null }
 
     // A call is between the two keys that speak on it: the first verified tick fixes the peer's key
@@ -139,6 +164,6 @@ export class Receiver {
     this.tip = dsha256(b)
     this.seq = inp.sequence
     s.verified++; s.bytes += b.length
-    return { seq: inp.sequence, linked, payload: Uint8Array.from(dp[0]) }
+    return { seq: inp.sequence, linked, payload: Uint8Array.from(payload) }
   }
 }
