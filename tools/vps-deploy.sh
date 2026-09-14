@@ -27,6 +27,8 @@ $NAME, www.$NAME {
 	}
 	file_server
 	header Cache-Control no-store
+	@manifest path *.webmanifest
+	header @manifest Content-Type application/manifest+json
 }
 EOF
   sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
