@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#000"/>
+  <circle cx="256" cy="256" r="172" fill="none" stroke="#00ff41" stroke-width="14" opacity=".5"/>
+  <text x="256" y="336" text-anchor="middle" font-family="'Share Tech Mono','Courier New',monospace" font-size="230" font-weight="bold" fill="#00ff41">f</text>
+</svg>

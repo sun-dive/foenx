@@ -14,6 +14,7 @@ const enc = new TextEncoder(), dec = new TextDecoder()
 const idOf = (label, extra = new Uint8Array(0)) => toHex(sha256(concat(fromUtf8(label), extra)).subarray(0, 16))
 export const BOOK_ID = idOf('foen-book-v1')
 export const inboxOf = pub => idOf('foen-inbox-v1', pub)
+const STALE_S = 45   // longer than the page rings for (30 s), so a page opened while it rings still rings
 
 const readU32be = (b, o) => ((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]) >>> 0
 function frames(body) {
@@ -73,6 +74,9 @@ export class Inbox {
             const v = verifyAlone(this.relay.callId, bytes)
             if (!v) continue
             let p; try { p = JSON.parse(dec.decode(v.payload)) } catch { continue }
+            // An invite's seq is the second it was sent. The ring replays on every page load, so anything
+            // older than a ring's length is a call that has already been missed, not a new one.
+            if (Math.floor(Date.now() / 1000) - v.seq > STALE_S) continue
             if ((p.t === 'invite' || p.t === 'cancel') && /^[0-9a-f]{32}$/.test(p.call)) onInvite({ t: p.t, callId: p.call, from: String(p.from ?? '').slice(0, 40), pub: v.pub, seq: v.seq })
           }
         } catch { await new Promise(r => setTimeout(r, 500)) }
