@@ -21,7 +21,7 @@ deployment:
     - /bin/cp site/index.html site/test.html site/manifest.webmanifest site/icon.svg site/icon-192.png site/icon-512.png site/help.html site/privacy.html site/terms.html site/contact.html site/pages.css site/robots.txt "$DEPLOYPATH/"
     - /bin/cp site/.htaccess "$DEPLOYPATH/.htaccess"
     - /bin/mkdir -p "$DEPLOYPATH/js/jetmora"
-    - /bin/cp site/js/foen.mjs site/js/call.mjs site/js/book.mjs site/js/thread.mjs site/js/tones.mjs site/js/key.mjs site/js/slip10.mjs "$DEPLOYPATH/js/"
+    - /bin/cp site/js/foen.mjs site/js/call.mjs site/js/book.mjs site/js/thread.mjs site/js/tones.mjs site/js/key.mjs site/js/slip10.mjs site/js/secret.mjs "$DEPLOYPATH/js/"
     - /bin/cp site/js/jetmora/*.mjs site/js/jetmora/README "$DEPLOYPATH/js/jetmora/"
     - /bin/cp site/js/engine/*.mjs site/js/engine/README "$DEPLOYPATH/js/engine/"
     - /bin/mkdir -p "$DEPLOYPATH/js/engine/data"
@@ -30,6 +30,7 @@ deployment:
     # The relay keeps call tips OUTSIDE every docroot.
     - /bin/mkdir -p "$HOME/foen-data" && /bin/chmod 700 "$HOME/foen-data"
     - /bin/cp server/relay.php server/book.php "$DEPLOYPATH/"
+- /bin/cp server/contact.php server/book.php "$DEPLOYPATH/"
     # what is live - https://foen.xyz/version.txt
     - git rev-parse --short HEAD > "$DEPLOYPATH/version.txt"
     - echo "foen ← $(git rev-parse --short HEAD)"

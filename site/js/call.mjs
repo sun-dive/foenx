@@ -9,7 +9,13 @@
 // Video is VP8, audio is Opus, both from WebCodecs. A key frame every KEY_EVERY ticks, so a late joiner
 // or a lost tick recovers inside the relay's ring.
 
-import { Sender, Receiver, Relay } from './foen.mjs'
+import { Sender, Receiver, Relay, fromHex } from './foen.mjs'
+import { newAgreement, callKey, nonceFor, aadFor, seal, open } from './secret.mjs'
+
+// A tick's payload is either CLEAR or SEALED, by its first byte:
+//   0x00  clear: [0][my agreement public half, 32][ack u32]      — sent until the call key exists; no media
+//   0x01  sealed: [1][AES-GCM ciphertext of packTick(ack, records)] — everything once both halves are held
+const CLEAR = 0, SEALED = 1
 
 const TICK_MS = 100
 const KEY_EVERY = 10          // a key frame every second: skipping ahead costs at most that
@@ -63,7 +69,13 @@ export class Call {
     this.sender = new Sender(o.wallet, o.callId)
     this.receiver = new Receiver(o.callId, o.peerPub ?? null, o.peerNumber ?? null)
     this.stats = { framesIn: 0, framesEncoded: 0, audioEncoded: 0, ticksSent: 0, ticksGot: 0, framesDecoded: 0, audioDecoded: 0,
-                   keyWaits: 0, decodeErrors: 0, videoBytes: 0, audioBytes: 0, startedAt: 0, rtts: [], audioDropped: 0, audioLagMs: 0, videoSkipped: 0, drawWaits: [] }
+                   keyWaits: 0, decodeErrors: 0, videoBytes: 0, audioBytes: 0, startedAt: 0, rtts: [], audioDropped: 0, audioLagMs: 0, videoSkipped: 0, drawWaits: [],
+                   clearTicks: 0, sealedTicks: 0, unreadable: 0, badSeal: 0 }
+    this.callIdBytes = fromHex(o.callId)
+    this.myRole = o.role === 'a' ? 0x61 : 0x62
+    this.peerRole = o.role === 'a' ? 0x62 : 0x61
+    this.agree = null      // my X25519 pair for this call
+    this.key = null        // the call key, once the other side's half has arrived
     this.arrivals = new Map()
     this.pendingVideo = null
     this.pendingAudio = []
@@ -86,6 +98,7 @@ export class Call {
       verified: r.verified, badSig: r.badSig, badFormat: r.badFormat, stale: r.stale, gaps: r.gaps, missed: r.missed,
       posts: l.posts, postFail: l.postFail, polls: l.polls, pollFail: l.pollFail, maxInFlight: l.maxInFlight,
       rtt: { n: sorted.length, median: q(0.5), p90: q(0.9), max: sorted.length ? Math.round(sorted.at(-1)) : null },
+      secured: !!this.key, clearTicks: s.clearTicks, sealedTicks: s.sealedTicks, unreadable: s.unreadable, badSeal: s.badSeal,
       sendKbps: el > 0 ? Math.round((s.videoBytes + s.audioBytes) * 8 / 1000 / el) : 0,
       recvKbps: el > 0 ? Math.round(r.bytes * 8 / 1000 / el) : 0,
     }
@@ -93,6 +106,7 @@ export class Call {
 
   async start() {
     if (!supported()) throw new Error('this browser has no WebCodecs (Chrome, Edge or Android Chrome do)')
+    this.agree = await newAgreement()
     this.running = true
     this.stats.startedAt = performance.now()
     // Take what the device has: camera and microphone, or either alone, or neither (watch and listen only).
@@ -124,7 +138,8 @@ export class Call {
   /** Hang up: tell the other side, then stop. */
   stop(reason = 'hung up') {
     if (!this.running) return
-    this.sender.entry(packTick(this.peerSeqSeen, [{ type: 4, ts: 0, data: new Uint8Array(0) }])).then(e => this.relay.postAsync(e.seq, e.bytes)).catch(() => {})
+    if (this.key) this.sealedPayload(packTick(this.peerSeqSeen, [{ type: 4, ts: 0, data: new Uint8Array(0) }]))
+      .then(p => this.sender.entry(p)).then(e => this.relay.postAsync(e.seq, e.bytes)).catch(() => {})
     this.endReason = reason
     this.running = false
     try { this.media?.getTracks().forEach(t => t.stop()) } catch {}
@@ -190,14 +205,32 @@ export class Call {
     }
   }
 
+  /** [1][ciphertext]: the packed tick sealed under the call key with this tick's nonce. */
+  async sealedPayload(plain) {
+    const seq = this.sender.seq   // the sequence the next entry will carry
+    const sealed = await seal(this.key, nonceFor(this.myRole, seq), aadFor(this.callIdBytes, this.myRole), plain)
+    const out = new Uint8Array(1 + sealed.length); out[0] = SEALED; out.set(sealed, 1)
+    return out
+  }
+  /** [0][my public half][ack]: sent until the other side's half has arrived. Carries no media. */
+  clearPayload() {
+    const out = new Uint8Array(1 + 32 + 4); out[0] = CLEAR; out.set(this.agree.pub, 1); out.set(u32be(this.peerSeqSeen >>> 0), 33)
+    return out
+  }
+
   tickLoop() {
     const loop = async () => {
       while (this.running) {
         const records = []
         if (this.pendingVideo) { records.push(this.pendingVideo); this.stats.videoBytes += this.pendingVideo.data.length; this.pendingVideo = null }
         if (this.pendingAudio.length) { for (const a of this.pendingAudio) { records.push(a); this.stats.audioBytes += a.data.length }; this.pendingAudio = [] }
-        if (records.length) {
-          const e = await this.sender.entry(packTick(this.peerSeqSeen, records))
+        // No call key yet: send my half and nothing else. Media made before the key exists is dropped, not
+        // sent in the clear.
+        let payload = null
+        if (!this.key) { payload = this.clearPayload(); this.stats.clearTicks++ }
+        else if (records.length) { payload = await this.sealedPayload(packTick(this.peerSeqSeen, records)); this.stats.sealedTicks++ }
+        if (payload) {
+          const e = await this.sender.entry(payload)
           this.sendTimes.set(e.seq, performance.now())
           if (this.sendTimes.size > 200) this.sendTimes.delete(this.sendTimes.keys().next().value)
           while (this.relay.stats.inFlight >= MAX_IN_FLIGHT && this.running) await new Promise(r => setTimeout(r, 5))
@@ -253,8 +286,24 @@ export class Call {
     })
     this.aDec.configure({ codec: 'opus', sampleRate, numberOfChannels })
   }
-  takeTick(payload, seq) {
-    const t = unpackTick(payload)
+  async takeTick(payload, seq) {
+    if (payload.length < 1) return
+    if (payload[0] === CLEAR) {
+      // Their half. Derive the call key once; later clear ticks just carry the ack.
+      if (payload.length < 37) return
+      if (!this.key) this.key = await callKey(this.agree.priv, payload.subarray(1, 33), this.callIdBytes)
+      this.stats.ticksGot++
+      if (!this.lastHeard) this.onFirstTick?.()
+      this.lastHeard = performance.now()
+      const st = this.sendTimes.get(readU32be(payload, 33))
+      if (st !== undefined) { this.stats.rtts.push(performance.now() - st); this.sendTimes.delete(readU32be(payload, 33)) }
+      return
+    }
+    if (payload[0] !== SEALED) return
+    if (!this.key) { this.stats.unreadable++; return }
+    const plain = await open(this.key, nonceFor(this.peerRole, seq), aadFor(this.callIdBytes, this.peerRole), payload.subarray(1))
+    if (!plain) { this.stats.badSeal++; return }
+    const t = unpackTick(plain)
     if (!t) return
     this.stats.ticksGot++
     if (!this.lastHeard) this.onFirstTick?.()
@@ -282,7 +331,7 @@ export class Call {
       const ok = await this.receiver.accept(bytes)
       if (!ok) return
       this.peerSeqSeen = ok.seq
-      this.takeTick(ok.payload, ok.seq)
+      await this.takeTick(ok.payload, ok.seq)
     }
     const loop = async () => {
       let after = -1

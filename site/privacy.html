@@ -28,13 +28,14 @@
 <p>Clearing the site's data in your browser removes all of it. Your number can then be restored only from your words.</p>
 
 <h2>What passes through the relay</h2>
-<p>A call travels from your device to our relay and on to the other person's device, over an encrypted connection to the relay on each side. The relay holds the last few seconds of each call, a rolling window of about six seconds per direction, and overwrites it continuously. It is not recorded, and what remains of the window is deleted within an hour of the call ending. Every fragment is signed by the sender's key, so the other side can tell it came from you and not from us or anyone in between.</p>
-<p>Be aware of what this does and does not mean: the relay could in principle see a call as it passes, in the same way a telephone exchange could. It does not record, and we run no software that looks. Protection of the content from the relay itself is planned and will be described here when it exists.</p>
+<p>A call travels from your device to our relay and on to the other person's device. The content is encrypted end to end: at the start of every call the two devices agree a key that exists only in their two browsers and only for that call, and everything after that, picture and sound, is ciphertext. The relay cannot read a call, and neither can anyone who copies the traffic, now or later. Every fragment is also signed by the sender's number, so the other side can tell it came from you and not from us or anyone in between.</p>
+<p>The relay holds the last few seconds of each call, a rolling window of about six seconds per direction, overwrites it continuously, and deletes what remains within an hour of the call ending. What the relay can see while a call runs is that two numbers are talking and when. It does not write that down.</p>
 
 <h2>What the relay stores</h2>
 <ul>
   <li><b>The phone book</b>, if you choose to list yourself: your name and your number, signed by your key, kept for thirty days after the last time you listed or refreshed it, then deleted. Listing is optional and off by default. Anyone can read the phone book; that is its purpose.</li>
   <li><b>Invitations</b>: when someone calls you, a short signed note saying who is calling waits for your page to pick it up. It is overwritten by later invitations and deleted within an hour in any case.</li>
+  <li><b>Contact messages</b>, if you send one through the contact page: the message and whatever you chose to write in the reply line, kept until the operator has read and dealt with it. No address is stored with it. To hold off bots, a salted hash of the sending address lives for an hour and then goes.</li>
   <li><b>Nothing else.</b> The relay keeps no access logs: no addresses, no times, no record of who called whom. The web server is configured without an access log. We cannot answer "who did this number call" because nothing records it.</li>
 </ul>
 

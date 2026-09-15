@@ -15,13 +15,34 @@
 <p>foen is made by sun-dive. There is no company office and no call centre; there is a person, and a public repository.</p>
 
 <div class="box">
-<p><b>Problems and suggestions</b><br>
+<form id="form">
+<p><label for="message"><b>Your message</b></label><br>
+<textarea id="message" name="message" rows="6" maxlength="4000" required style="width:100%;font:inherit;padding:8px;border-radius:8px;border:1px solid #8886;box-sizing:border-box"></textarea></p>
+<p><label for="reply"><b>How to reach you</b> <span class="muted">(optional: your foen number, or whatever you prefer)</span></label><br>
+<input id="reply" name="reply" maxlength="200" style="width:100%;font:inherit;padding:8px;border-radius:8px;border:1px solid #8886;box-sizing:border-box"></p>
+<p style="position:absolute;left:-9999px" aria-hidden="true"><label>Leave this empty <input name="website" tabindex="-1" autocomplete="off"></label></p>
+<p><button id="send" style="font:inherit;font-size:18px;padding:12px 22px;border-radius:10px;border:1px solid #8886;cursor:pointer">Send</button> <span id="state" class="muted"></span></p>
+</form>
+<p class="muted">There is no email address here on purpose: a published address is a spam magnet. Messages go straight to the operator and nowhere else.</p>
+<p><b>Problems with the software</b><br>
 Open an issue at <a href="https://github.com/sun-dive/foenx/issues">github.com/sun-dive/foenx/issues</a>. That is where fixes are tracked, and anyone can read what has been reported.</p>
-<p><b>Email</b><br>
-<span id="email">An address will be published here shortly.</span></p>
 <p><b>Advertising and business</b><br>
-Use the same email. Direct placements on the idle screen are available to businesses whose products suit a free telephone.</p>
+Use the form. Direct placements on the idle screen are available to businesses whose products suit a free telephone.</p>
 </div>
+<script>
+document.getElementById('form').onsubmit = async e => {
+  e.preventDefault()
+  const state = document.getElementById('state'), btn = document.getElementById('send')
+  btn.disabled = true; state.textContent = 'sending…'
+  try {
+    const r = await fetch('contact.php', { method: 'POST', body: new FormData(e.target) })
+    const j = await r.json().catch(() => ({}))
+    if (r.ok && j.ok) { state.textContent = 'sent, thank you'; e.target.reset() }
+    else state.textContent = j.error || 'could not send; try again in a while'
+  } catch { state.textContent = 'could not send; check the connection' }
+  btn.disabled = false
+}
+</script>
 
 <h2>Before you write</h2>
 <ul>

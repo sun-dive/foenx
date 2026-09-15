@@ -2,5 +2,6 @@ User-agent: *
 Allow: /
 Disallow: /relay.php
 Disallow: /book.php
+Disallow: /contact.php
 Disallow: /test.html
 Sitemap: https://foen.xyz/sitemap.xml

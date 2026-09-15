@@ -11,7 +11,7 @@ KEY=${KEY:-$HOME/.ssh/foen-vps}
 SSH="ssh -i $KEY -o BatchMode=yes $HOST"
 REV=$(git rev-parse --short HEAD)
 
-tar -czf - -C site index.html test.html .htaccess manifest.webmanifest icon.svg icon-192.png icon-512.png help.html privacy.html terms.html contact.html pages.css robots.txt js -C ../server relay.php book.php | $SSH "
+tar -czf - -C site index.html test.html .htaccess manifest.webmanifest icon.svg icon-192.png icon-512.png help.html privacy.html terms.html contact.html pages.css robots.txt js -C ../server relay.php book.php contact.php | $SSH "
   set -e
   sudo install -d -m 755 -o sundive -g sundive /srv/sites/$NAME
   sudo install -d -m 770 -o www-data -g www-data /srv/sites/foen-data
