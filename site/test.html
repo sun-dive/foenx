@@ -23,7 +23,8 @@
 { "imports": {
   "@noble/hashes/sha2.js": "./js/vendor/noble-hashes/sha2.js",
   "@noble/hashes/hmac.js": "./js/vendor/noble-hashes/hmac.js",
-  "@noble/hashes/legacy.js": "./js/vendor/noble-hashes/legacy.js"
+  "@noble/hashes/legacy.js": "./js/vendor/noble-hashes/legacy.js",
+  "@noble/hashes/pbkdf2.js": "./js/vendor/noble-hashes/pbkdf2.js"
 } }
 </script>
 </head>
@@ -57,30 +58,31 @@
 </div>
 
 <script type="module">
-import { loadKey, newCallId, Sender, Receiver, Relay, Test, toHex, fromHex } from './js/foen.mjs'
-import { publicKey } from './js/engine/ecdsa.mjs'
+import { newCallId, Sender, Receiver, Relay, Test, toHex, fromHex } from './js/foen.mjs'
+import * as keys from './js/key.mjs'
 
 const $ = id => document.getElementById(id)
 const params = new URLSearchParams(location.hash.slice(1))
 const q = new URLSearchParams(location.search)
-const d = loadKey()
-const pub = publicKey(d)
-$('pub').textContent = toHex(pub)
+let wallet = await keys.loadWallet()
+if (!wallet) wallet = (await keys.createWallet()).wallet
+const myNumber = keys.numberOf(wallet.pub)
+$('pub').textContent = keys.formatNumber(myNumber)
 
-let callId = params.get('c'), role = 'b', peerPub = params.get('p') ? fromHex(params.get('p')) : null
+let callId = params.get('c'), role = 'b', peerNumber = keys.parseNumber(params.get('n') || '')
 if (!callId) {
   callId = newCallId(); role = 'a'
-  const link = `${location.origin}${location.pathname}#c=${callId}&p=${toHex(pub)}`
+  const link = `${location.origin}${location.pathname}#c=${callId}&n=${myNumber}`
   $('link').value = link; $('invite').hidden = false
   window.__foenInvite = link
 }
 $('call').textContent = callId; $('role').textContent = role
-if (peerPub) $('peer').textContent = toHex(peerPub)
+if (peerNumber) $('peer').textContent = keys.formatNumber(peerNumber)
 
 const relayUrl = new URL('relay.php', location.href).href
 const relay = new Relay(relayUrl, callId, role)
-const sender = new Sender(d, callId)
-const receiver = new Receiver(callId, peerPub)
+const sender = new Sender(wallet, callId)
+const receiver = new Receiver(callId, null, peerNumber)
 
 function render(s) {
   const rows = [
@@ -92,7 +94,7 @@ function render(s) {
     ['received kbit/s', s.kbps],
   ]
   $('stats').tBodies[0].innerHTML = rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')
-  if (receiver.peerPub) $('peer').textContent = toHex(receiver.peerPub)
+  if (receiver.peerPub) $('peer').textContent = keys.formatNumber(keys.numberOf(Uint8Array.from(receiver.peerPub)))
   window.__foenStats = s
 }
 

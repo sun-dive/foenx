@@ -21,9 +21,11 @@ deployment:
     - /bin/cp site/index.html site/test.html site/manifest.webmanifest site/icon.svg site/icon-192.png site/icon-512.png "$DEPLOYPATH/"
     - /bin/cp site/.htaccess "$DEPLOYPATH/.htaccess"
     - /bin/mkdir -p "$DEPLOYPATH/js/jetmora"
-    - /bin/cp site/js/foen.mjs site/js/call.mjs site/js/book.mjs site/js/thread.mjs site/js/tones.mjs "$DEPLOYPATH/js/"
+    - /bin/cp site/js/foen.mjs site/js/call.mjs site/js/book.mjs site/js/thread.mjs site/js/tones.mjs site/js/key.mjs site/js/slip10.mjs "$DEPLOYPATH/js/"
     - /bin/cp site/js/jetmora/*.mjs site/js/jetmora/README "$DEPLOYPATH/js/jetmora/"
     - /bin/cp site/js/engine/*.mjs site/js/engine/README "$DEPLOYPATH/js/engine/"
+    - /bin/mkdir -p "$DEPLOYPATH/js/engine/data"
+    - /bin/cp site/js/engine/data/wordlist-english.mjs "$DEPLOYPATH/js/engine/data/"
     - /bin/cp site/js/vendor/noble-hashes/*.js site/js/vendor/noble-hashes/LICENSE site/js/vendor/noble-hashes/README "$DEPLOYPATH/js/vendor/noble-hashes/"
     # The relay keeps call tips OUTSIDE every docroot.
     - /bin/mkdir -p "$HOME/foen-data" && /bin/chmod 700 "$HOME/foen-data"

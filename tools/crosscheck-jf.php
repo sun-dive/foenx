@@ -23,11 +23,11 @@ $ok(bin2hex($in['prevEntry']) === $prevTipHex, 'input spends the expected tip');
 $u = $in['unlocking']; $p = 0;
 $rd = function () use (&$p, $u) { $n = ord($u[$p]); $p++; $v = substr($u, $p, $n); $p += $n; return $v; };
 $sig = $rd(); $pub = $rd();
-$ok($p === strlen($u) && strlen($pub) === 33 && ord($u[0]) <= JF_PUSH_MAX, 'unlocking is two direct pushes: <sig> <33-byte pub>');
+$ok($p === strlen($u) && strlen($pub) === 32 && strlen($sig) === 64 && ord($u[0]) <= JF_PUSH_MAX, 'unlocking is two direct pushes: <64-byte sig> <32-byte Ed25519 pub>');
 
 // the lock, re-assembled from the same source the page uses
 $h160 = hash('ripemd160', hash('sha256', $pub, true), true);
-$src = "\$$callId 2DROP 2DUP 1000 HASH160 1000 20 \$" . bin2hex($h160) . " BYTES= >R 2000 PREIMAGE 3000 HASH256 3000 32 CHECKSIG R> AND";
+$src = "\$$callId 2DROP 2DUP 1000 HASH160 1000 20 \$" . bin2hex($h160) . " BYTES= >R 2000 PREIMAGE 3000 HASH256 3000 32 ED25519-CHECKSIG R> AND";
 $lock = jf_asm($src);
 $ok($lock === $e['outputs'][0]['locking'], sprintf('★ the successor lock equals jf_asm of the same source, byte for byte (%d B)', strlen($lock)));
 

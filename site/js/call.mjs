@@ -60,8 +60,8 @@ export class Call {
   constructor(o) {
     Object.assign(this, o)
     this.relay = new Relay(o.relayUrl, o.callId, o.role)
-    this.sender = new Sender(o.d, o.callId)
-    this.receiver = new Receiver(o.callId, o.peerPub ?? null)
+    this.sender = new Sender(o.wallet, o.callId)
+    this.receiver = new Receiver(o.callId, o.peerPub ?? null, o.peerNumber ?? null)
     this.stats = { framesIn: 0, framesEncoded: 0, audioEncoded: 0, ticksSent: 0, ticksGot: 0, framesDecoded: 0, audioDecoded: 0,
                    keyWaits: 0, decodeErrors: 0, videoBytes: 0, audioBytes: 0, startedAt: 0, rtts: [], audioDropped: 0, audioLagMs: 0, videoSkipped: 0, drawWaits: [] }
     this.arrivals = new Map()
@@ -124,7 +124,7 @@ export class Call {
   /** Hang up: tell the other side, then stop. */
   stop(reason = 'hung up') {
     if (!this.running) return
-    try { const e = this.sender.entry(packTick(this.peerSeqSeen, [{ type: 4, ts: 0, data: new Uint8Array(0) }])); this.relay.postAsync(e.seq, e.bytes) } catch {}
+    this.sender.entry(packTick(this.peerSeqSeen, [{ type: 4, ts: 0, data: new Uint8Array(0) }])).then(e => this.relay.postAsync(e.seq, e.bytes)).catch(() => {})
     this.endReason = reason
     this.running = false
     try { this.media?.getTracks().forEach(t => t.stop()) } catch {}
@@ -197,7 +197,7 @@ export class Call {
         if (this.pendingVideo) { records.push(this.pendingVideo); this.stats.videoBytes += this.pendingVideo.data.length; this.pendingVideo = null }
         if (this.pendingAudio.length) { for (const a of this.pendingAudio) { records.push(a); this.stats.audioBytes += a.data.length }; this.pendingAudio = [] }
         if (records.length) {
-          const e = this.sender.entry(packTick(this.peerSeqSeen, records))
+          const e = await this.sender.entry(packTick(this.peerSeqSeen, records))
           this.sendTimes.set(e.seq, performance.now())
           if (this.sendTimes.size > 200) this.sendTimes.delete(this.sendTimes.keys().next().value)
           while (this.relay.stats.inFlight >= MAX_IN_FLIGHT && this.running) await new Promise(r => setTimeout(r, 5))
@@ -277,8 +277,9 @@ export class Call {
     }
   }
   receiveLoop() {
-    const take = bytes => {
-      const ok = this.receiver.accept(bytes)
+    // Verification is asynchronous (WebCrypto), so ticks are checked in arrival order through one chain.
+    const take = async bytes => {
+      const ok = await this.receiver.accept(bytes)
       if (!ok) return
       this.peerSeqSeen = ok.seq
       this.takeTick(ok.payload, ok.seq)
@@ -291,12 +292,14 @@ export class Call {
       while (this.running) {
         try {
           if (this.stream) {
-            await this.relay.stream(after, 20000, bytes => { take(bytes); after = Math.max(after, this.receiver.seq) })
+            let chain = Promise.resolve()
+            await this.relay.stream(after, 20000, bytes => { chain = chain.then(() => take(bytes)).then(() => { after = Math.max(after, this.receiver.seq) }) })
+            await chain
           } else {
             const got = await this.relay.poll(after, 20000)
             if (!got) continue
             after = Math.max(after, got.seq)
-            for (const bytes of got.entries) take(bytes)
+            for (const bytes of got.entries) await take(bytes)
           }
         } catch { await new Promise(r => setTimeout(r, 250)) }
       }

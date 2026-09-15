@@ -3,38 +3,13 @@
 // foen - a call as a covenant chain tip with no chain behind it.
 //
 // Each side signs every chunk it sends over the previous tip; the receiver verifies, plays, keeps only
-// the new tip and drops the chunk. The relay holds one tip per direction and validates nothing.
-//
-// Entry layout (binary):
-//   [0]       version = 1
-//   [1..5)    seq, u32 big-endian
-//   [5..37)   previous tip (32)
-//   [37..69)  sha256 of the payload (32)
-//   [69..102) sender's public key (33) - every entry verifies on its own; a tip-only relay may drop any
-//   [102]     signature length L
-//   [103..103+L) DER signature over sha256(genesis ‖ header[0..102))
-//   [103+L..) payload
-// tip = sha256(header[0..102)) · genesis = sha256("foen-call-v1" ‖ callId ‖ senderPub)
+// the new tip and drops the chunk. The relay holds a short ring per direction and validates nothing.
+// The entry is a jetmora covenant entry (thread.mjs); the key is the wallet in key.mjs.
 
-import { N } from './engine/secp256k1.mjs'
-import { toHex, fromHex, toBigBE, beBytes } from './engine/bytes.mjs'
+import { toHex, fromHex, beBytes } from './engine/bytes.mjs'
 
 const MAX_IN_FLIGHT = 8
 
-export function newKey() {
-  for (;;) {
-    const d = toBigBE(crypto.getRandomValues(new Uint8Array(32)))
-    if (d > 0n && d < N) return d
-  }
-}
-export function loadKey() {
-  let hex = null
-  try { hex = localStorage.getItem('foen:key') } catch {}
-  if (hex) return BigInt('0x' + hex)
-  const d = newKey()
-  try { localStorage.setItem('foen:key', d.toString(16).padStart(64, '0')) } catch {}
-  return d
-}
 export const newCallId = () => toHex(crypto.getRandomValues(new Uint8Array(16)))
 
 const u32be = n => Uint8Array.of((n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255)
@@ -132,8 +107,8 @@ export class Test {
     this.startedAt = performance.now()
     const stopAt = this.startedAt + this.seconds * 1000
 
-    const take = bytes => {
-      const ok = this.receiver.accept(bytes)
+    const take = async bytes => {
+      const ok = await this.receiver.accept(bytes)
       if (!ok) return
       this.peerSeqSeen = ok.seq
       if (ok.payload.length >= 4) {
@@ -147,12 +122,14 @@ export class Test {
       while (this.running) {
         try {
           if (this.stream) {
-            await this.relay.stream(after, 20000, bytes => { take(bytes); after = Math.max(after, this.receiver.seq); this.onUpdate(this.summary()) })
+            let chain = Promise.resolve()
+            await this.relay.stream(after, 20000, bytes => { chain = chain.then(() => take(bytes)).then(() => { after = Math.max(after, this.receiver.seq); this.onUpdate(this.summary()) }) })
+            await chain
           } else {
             const got = await this.relay.poll(after, 20000)
             if (!got) continue
             after = Math.max(after, got.seq)
-            for (const bytes of got.entries) take(bytes)
+            for (const bytes of got.entries) await take(bytes)
             this.onUpdate(this.summary())
           }
         } catch (e) { await new Promise(r => setTimeout(r, 250)) }
@@ -164,7 +141,7 @@ export class Test {
         const payload = new Uint8Array(this.chunkBytes)
         payload.set(u32be(this.peerSeqSeen >>> 0), 0)
         crypto.getRandomValues(payload.subarray(4, Math.min(this.chunkBytes, 4 + 1024)))
-        const e = this.sender.entry(payload)
+        const e = await this.sender.entry(payload)
         this.sendTimes.set(e.seq, performance.now())
         if (this.sendTimes.size > 200) this.sendTimes.delete(this.sendTimes.keys().next().value)
         // Pipelined: up to MAX_IN_FLIGHT posts on the wire at once; the cadence is the interval, not the RTT.

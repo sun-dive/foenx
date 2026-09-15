@@ -1,2 +1,2 @@
-engine/ = unmodified copies of PharLap2 impl/js at commit 9004a98 (secp256k1, ecdsa, rfc6979, bytes).
+engine/ = unmodified copies of PharLap2 impl/js at commit 9004a98 (secp256k1, ecdsa, rfc6979, bytes, bip39 + data/wordlist-english).
 Refresh with tools/sync-engine.sh; never edit here.
