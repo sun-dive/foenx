@@ -123,6 +123,7 @@
   <p><input id="myname" placeholder="your name" maxlength="40" style="font:inherit;padding:8px;border-radius:8px;border:1px solid #8886;width:60%"> <button id="register" style="width:auto;font-size:18px;padding:8px 14px">List me</button></p>
   <div id="names" class="muted">nobody listed yet</div>
   <p style="margin-top:12px"><input id="dialNumber" placeholder="or type a number" inputmode="numeric" style="font:inherit;padding:8px;border-radius:8px;border:1px solid #8886;width:60%"> <button id="dial" style="width:auto;font-size:18px;padding:8px 14px">Call</button></p>
+  <p><button id="share" style="font-size:18px;padding:12px">Share my number with a friend</button></p>
 </div>
 
 <div class="card" id="invite" hidden>
@@ -186,7 +187,9 @@ $('restore').onclick = async () => {
   try { await keys.restoreWallet(words); location.reload() } catch (e) { $('state').textContent = 'could not restore: ' + e.message }
 }
 
-let callId = params.get('c'), role = 'b', peerPub = null, peerNumber = keys.parseNumber(params.get('n') || '')
+// #c=<call>&n=<number> joins a call; #n=<number>&from=<name> alone is a shared number, a contact to call.
+const sharedNumber = params.get('c') ? null : keys.parseNumber(params.get('n') || '')
+let callId = params.get('c'), role = 'b', peerPub = null, peerNumber = params.get('c') ? keys.parseNumber(params.get('n') || '') : null
 if (!callId) {
   callId = newCallId(); role = 'a'
   const link = `${location.origin}${location.pathname}#c=${callId}&n=${myNumber}`
@@ -196,6 +199,7 @@ if (!callId) {
 $('callid').textContent = callId; $('role').textContent = role
 if (peerNumber) $('peer').textContent = keys.formatNumber(peerNumber)
 if (!supported()) { $('state').textContent = 'This browser cannot encode video in the page. Chrome, Edge or Chrome on Android can.'; $('call').disabled = true }
+
 
 // The page is either idle (the book, the last person called) or in a call (the pictures, the controls).
 const setCallState = s => { document.documentElement.dataset.call = s }
@@ -251,6 +255,23 @@ $('dial').onclick = () => {
   const number = keys.parseNumber($('dialNumber').value)
   if (!number) { $('state').textContent = 'that is not a foen number; check the digits' ; return }
   callName({ name: keys.formatNumber(number), number })
+}
+// ── sharing a number: a link that opens with one button, "Call <name>" ──
+const shareLink = () => `${location.origin}${location.pathname}#n=${myNumber}${myName ? '&from=' + encodeURIComponent(myName) : ''}`
+$('share').onclick = async () => {
+  const url = shareLink(), text = `Call me on foen: ${keys.formatNumber(myNumber)}`
+  try {
+    if (navigator.share) { await navigator.share({ title: 'foen', text, url }); return }
+    await navigator.clipboard.writeText(`${text}\n${url}`)
+    $('state').textContent = 'copied: send it to your friend'
+  } catch (e) { if (e.name !== 'AbortError') $('state').textContent = `your number: ${keys.formatNumber(myNumber)} · ${url}` }
+}
+// A shared link opened here: the friend's number is remembered and the big button dials it.
+if (sharedNumber) {
+  const from = (params.get('from') || '').slice(0, 40)
+  remember(from || keys.formatNumber(sharedNumber), sharedNumber)
+  $('state').textContent = `${from || 'a friend'} shared their number with you. Press the button to call.`
+  history.replaceState(null, '', location.pathname + location.search)
 }
 // Sound is allowed only after the page has been touched once; unlock on the first click or tap.
 document.addEventListener('click', tones.unlock, { once: true }); document.addEventListener('touchstart', tones.unlock, { once: true })
