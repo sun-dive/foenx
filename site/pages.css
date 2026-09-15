@@ -1,0 +1,14 @@
+/* The reading pages: help, privacy, terms, contact. Plain, large, light or dark with the device. */
+:root { color-scheme: light dark; }
+body { font: 18px/1.55 system-ui, sans-serif; margin: 0; padding: 20px 16px 60px; max-width: 760px; margin-inline: auto; }
+h1 { font-size: 30px; margin: 0 0 4px; }
+h2 { font-size: 22px; margin: 28px 0 8px; }
+p, li { max-width: 68ch; }
+.muted { opacity: .7; }
+a { color: inherit; }
+nav { font-size: 15px; opacity: .8; margin-bottom: 18px; }
+nav a { margin-right: 14px; }
+ol li, ul li { margin: 6px 0; }
+.box { border: 1px solid #8884; border-radius: 12px; padding: 14px 16px; margin: 14px 0; }
+code { font-size: 16px; }
+footer { margin-top: 40px; font-size: 14px; opacity: .7; }

@@ -18,7 +18,7 @@ deployment:
     - if [ -f "$HOME/public_html/version.txt" ] && grep -qE '^(bd40ed4|6dcf2f9)$' "$HOME/public_html/version.txt"; then /bin/rm -f "$HOME/public_html/index.html" "$HOME/public_html/.htaccess" "$HOME/public_html/relay.php" "$HOME/public_html/version.txt"; /bin/rm -rf "$HOME/public_html/js"; echo "foen removed the 12 Sept files from public_html"; fi
     # ── the site ──
     - /bin/mkdir -p "$DEPLOYPATH/js/engine" "$DEPLOYPATH/js/vendor/noble-hashes"
-    - /bin/cp site/index.html site/test.html site/manifest.webmanifest site/icon.svg site/icon-192.png site/icon-512.png "$DEPLOYPATH/"
+    - /bin/cp site/index.html site/test.html site/manifest.webmanifest site/icon.svg site/icon-192.png site/icon-512.png site/help.html site/privacy.html site/terms.html site/contact.html site/pages.css site/robots.txt "$DEPLOYPATH/"
     - /bin/cp site/.htaccess "$DEPLOYPATH/.htaccess"
     - /bin/mkdir -p "$DEPLOYPATH/js/jetmora"
     - /bin/cp site/js/foen.mjs site/js/call.mjs site/js/book.mjs site/js/thread.mjs site/js/tones.mjs site/js/key.mjs site/js/slip10.mjs "$DEPLOYPATH/js/"
