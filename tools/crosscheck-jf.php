@@ -16,7 +16,7 @@ $bytes = hex2bin($entryHex);
 $e = CovenantEntry::decode($bytes);
 $ok = fn(bool $c, string $w) => printf("  %s %s\n", $c ? '✓' : '✗', $w) || ($c ? 0 : exit(1));
 
-$ok($e['version'] === version_build('JF', 2), sprintf('version is family JF revision 2 (0x%08x)', $e['version']));
+$ok($e['version'] === version_build('JF', 3), sprintf('version is family JF revision 3 (0x%08x)', $e['version']));
 $in = $e['inputs'][0];
 $ok(bin2hex($in['prevEntry']) === $prevTipHex, 'input spends the expected tip');
 // unlocking = <sig> <pub> as two direct pushes

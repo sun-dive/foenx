@@ -27,13 +27,13 @@ import { ripemd160 } from '@noble/hashes/legacy.js'
 import { sign, verifyDigest, publicKey } from './engine/ecdsa.mjs'
 import { toHex, fromHex } from './engine/bytes.mjs'
 
-export const VERSION_JF2 = ((0x46 << 24) | (0x4a << 16) | 2) >>> 0      // family 'JF', revision 2: the sectioned numbering
+export const VERSION_JF3 = ((0x46 << 24) | (0x4a << 16) | 3) >>> 0      // family 'JF', revision 3: sections by category, crypto last
 const SOURCE_HASH = sha256([...new TextEncoder().encode('foen thread v1 (jetForth): state 2DROP, key hash check, CHECKSIG over HASH256 of PREIMAGE, ANDed; one STR16 data output per tick')])
 // jetForth bytes (jetmora/server/ops-jf.php): a direct push is its own length (1..72); LIT8/LIT16 carry
 // integers; STR16/STR32 carry long strings. Words by number.
 const JF = { PUSH_MAX: 0x48, SMALL0: 0x49, LIT8: 0x53, LIT16: 0x54, STR16: 0x59, STR32: 0x5a,
   '2DROP': 0x5c, '2DUP': 0x5d, '>R': 0x62, 'R>': 0x6a, AND: 0x86, ABORT: 0xaf,
-  'BYTES=': 0xd5, CHECKSIG: 0xc0, HASH160: 0xc2, HASH256: 0xc3, PREIMAGE: 0xcb }
+  'BYTES=': 0xbf, CHECKSIG: 0xd6, HASH160: 0xda, HASH256: 0xdb, PREIMAGE: 0xcb }
 
 const dsha256 = b => sha256(sha256(b))
 const hash160 = pub => [...ripemd160(Uint8Array.from(sha256([...pub])))]
@@ -112,7 +112,7 @@ export class Sender {
   /** Tick: spend the tip, produce the successor and the payload. Returns { seq, bytes } (bytes: Uint8Array). */
   entry(payload) {
     const seq = this.seq++
-    const skeleton = { version: VERSION_JF2, inputs: [{ prevEntry: this.tip, index: 0, unlocking: [], sequence: seq }],
+    const skeleton = { version: VERSION_JF3, inputs: [{ prevEntry: this.tip, index: 0, unlocking: [], sequence: seq }],
                        outputs: [{ value: 0n, locking: this.lock }, { value: 0n, locking: dataOutput(payload) }], locktime: 0 }
     const pre = preimage({ entry: skeleton, inputIndex: 0, scriptCode: this.lock, value: 0n })
     const sig = [...sign(this.d, Uint8Array.from(dsha256(pre)), { lowS: true })]   // bare DER: JF's CHECKSIG takes the digest explicitly
@@ -140,7 +140,7 @@ export class Receiver {
     const b = [...bytes]
     let e
     try { e = parseEntry(b) } catch { s.badFormat++; return null }
-    if (e.version !== VERSION_JF2 || e.inputs.length !== 1 || e.outputs.length < 2 || e.locktime !== 0) { s.badFormat++; return null }
+    if (e.version !== VERSION_JF3 || e.inputs.length !== 1 || e.outputs.length < 2 || e.locktime !== 0) { s.badFormat++; return null }
     const inp = e.inputs[0]
     const ul = pushes(inp.unlocking)
     if (!ul || ul.length !== 2 || ul[1].length !== 33 || ul[0].length < 8) { s.badFormat++; return null }
