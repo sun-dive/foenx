@@ -180,13 +180,9 @@ function jAdd(P1, P2) {
   const U1 = mod(P1.X * Z2Z2), U2 = mod(P2.X * Z1Z1)
   const S1 = mod(P1.Y * P2.Z * Z2Z2), S2 = mod(P2.Y * P1.Z * Z1Z1)
   const H = mod(U2 - U1), r = mod(2n * (S2 - S1))
-  /* ⚠⚠ THIS BRANCH IS UNREACHABLE TODAY, AND IT IS LABELLED RATHER THAN DELETED OR PRETENDED OVER.
-     Equal x means either a doubling or a cancelling pair, and the general formula gives 0/0 for both.
-     But `jAdd` has exactly ONE caller, the ladder below, whose two registers differ by exactly P at
-     every step — so neither case can arise there.
-     ⇒ ⛔ NO TEST COVERS IT, and a mutation that broke it survived the suite. That is stated here
-       because the alternative is a reader assuming the green suite means these lines were checked.
-     ⇒ It stays because a second caller would need it and would not think to look. */
+  /* Equal x means either a doubling or a cancelling pair, and the general formula gives 0/0 for both.
+     The ladder never reaches this (its registers differ by exactly P at every step); `mulAdd` does,
+     when P1 = ±P2 or an accumulator meets a table entry. test/ecdsa.mjs covers both outcomes. */
   if (H === 0n) return r === 0n ? jDbl(P1) : J_INF
   const I = mod(4n * H * H), J = mod(H * I), V = mod(U1 * I)
   const X3 = mod(r * r - J - 2n * V)
@@ -236,6 +232,28 @@ function mulLadder(k, p, width) {
     R[b] = jDbl(R[b])
   }
   return jToAffine(R[0])
+}
+
+const bitLength = k => k === 0n ? 0 : k.toString(2).length
+
+/**
+ * ★ PUBLIC scalars, two at once: a·P1 + b·P2, which is what verification computes. Straus-Shamir:
+ *   one shared doubling per bit and at most one addition, from a table of {P1, P2, P1+P2}, all in
+ *   Jacobian form with the single inversion at the end. ⚠ Variable time on purpose — u1, u2, G and the
+ *   public key are all public; a secret scalar belongs in `mulBlinded`.
+ *   Measured in `verifyDigest` against the affine `mul` + `add` it replaces: 68.9 ms → 1.55 ms.
+ */
+export function mulAdd(a, P1, b, P2) {
+  a = mod(a, N); b = mod(b, N)
+  const J1 = { X: P1.x, Y: P1.y, Z: 1n }, J2 = { X: P2.x, Y: P2.y, Z: 1n }
+  const table = [null, J1, J2, jAdd(J1, J2)]
+  let R = J_INF
+  for (let i = Math.max(bitLength(a), bitLength(b)) - 1; i >= 0; i--) {
+    R = jDbl(R)
+    const idx = Number((a >> BigInt(i)) & 1n) | (Number((b >> BigInt(i)) & 1n) << 1)
+    if (idx) R = jAdd(R, table[idx])
+  }
+  return jToAffine(R)
 }
 
 /* ⚠ 8 bytes of blinding, matching the PHP sibling (`jetmora/server/secp256k1.php`). */

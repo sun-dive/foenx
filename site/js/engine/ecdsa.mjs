@@ -20,7 +20,7 @@
  *     reduced away. That RAISES THE COST of a timing attack; it does not remove it.
  *   **For anything material, sign air-gapped.**
  */
-import { N, P, G, mul, mulBlinded, add, serP, mod, modPow, invN, invNBlinded } from './secp256k1.mjs'
+import { N, P, G, mulBlinded, mulAdd, serP, mod, modPow, invN, invNBlinded } from './secp256k1.mjs'
 import { rfc6979k } from './rfc6979.mjs'
 import { concat, beBytes, toBigBE } from './bytes.mjs'
 
@@ -136,9 +136,7 @@ export function verifyDigest(sig, pub, digest32, allowTrailing = false) {
   if (Q === null) return false
   const z = toBig(digest32)
   const w = invN(s)
-  const p1 = mul(mod(z * w, N), G)
-  const p2 = mul(mod(r * w, N), Q)
-  const R = add(p1, p2)
+  const R = mulAdd(mod(z * w, N), G, mod(r * w, N), Q)     // u1·G + u2·Q, public scalars
   return R !== null && mod(R.x, N) === r
 }
 
