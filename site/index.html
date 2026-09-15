@@ -155,7 +155,16 @@ const params = new URLSearchParams(location.hash.slice(1))
 const q = new URLSearchParams(location.search)
 
 // ── the wallet: twelve words → a key that signs and is never seen → the number ──
-if (!keys.supported()) { $('state').textContent = 'This browser cannot hold a key safely. Chrome, Edge, Firefox or Safari from 2025 on can.'; throw new Error('no WebCrypto') }
+// Ed25519 in WebCrypto: Chrome 137 (May 2025), Firefox 130, Safari 17, Samsung Internet 30 (June 2026, Chromium 143).
+async function canHoldKey() {
+  if (!keys.supported()) return false
+  try { await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify']); return true } catch { return false }
+}
+if (!await canHoldKey()) {
+  $('state').textContent = 'This browser cannot hold your number safely yet. Update it (Samsung Internet needs version 30 or later), or open foen in Chrome.'
+  $('book').hidden = true; $('invite').hidden = true
+  throw new Error('no WebCrypto Ed25519')
+}
 try { localStorage.removeItem('foen:key') } catch {}          // the earlier readable key, if one is here: gone
 let wallet = await keys.loadWallet()
 if (!wallet) {
